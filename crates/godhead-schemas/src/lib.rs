@@ -25,6 +25,7 @@ pub mod log;
 pub mod node;
 pub mod refusal;
 pub mod registry;
+pub mod sovereignty;
 
 pub use config::{ConfigConstant, ConfigTier};
 pub use envelope::Envelope;
@@ -36,6 +37,10 @@ pub use log::{LogEvent, LogSnapshot, Severity};
 pub use node::{IntakeStatus, NodeDraft, NodeRecord, NormalizeOutcome};
 pub use refusal::{Law, RefusalDraft, RefusalReason, RefusalRecord};
 pub use registry::{SchemaRegistry, SchemaSpec, ValidatorFn};
+pub use sovereignty::{
+    ConsentDecision, ConsentRecord, ConsentScope, OverrideBasis, OverrideKind, OverrideRecord,
+    PetitionDraft, PetitionRecord, PetitionStatus,
+};
 
 /// The schema version of the slice-1 record types themselves.
 pub const RECORD_SCHEMA_VERSION: &str = "1.0.0";

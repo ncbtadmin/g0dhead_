@@ -1,9 +1,10 @@
 use crate::error::StoreError;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
-    ConfigConstant, ConfigTier, FlagDraft, FlagStatus, JobDraft, JobRecord, JobStatus, LeaseRecord,
-    LogEvent, LogSnapshot, NodeDraft, NodeRecord, NormalizeOutcome, ReadinessFlag, RefusalDraft,
-    RefusalRecord, Severity,
+    ConfigConstant, ConfigTier, ConsentDecision, FlagDraft, FlagStatus, JobDraft, JobRecord,
+    JobStatus, LeaseRecord, LogEvent, LogSnapshot, NodeDraft, NodeRecord, NormalizeOutcome,
+    OverrideRecord, PetitionDraft, PetitionRecord, ReadinessFlag, RefusalDraft, RefusalRecord,
+    Severity,
 };
 use uuid::Uuid;
 
@@ -203,4 +204,60 @@ pub trait Store {
     /// reconstruction primitive (doc 3 §4.1: the index is rebuilt from
     /// flags and job records, never from private memory).
     async fn list_jobs_by_input_ref(&self, input_ref: Uuid) -> Result<Vec<JobRecord>, StoreError>;
+
+    // -- sovereignty (Law IV) --
+    // Sovereign acts take a human actor string and no job identity: the
+    // signature is where agent-uncallability lives, and the substrate's
+    // agent-author trigger backs it below the API (SC-C07).
+
+    /// The sovereign's hand on a node's classification: applies the change
+    /// and lays the protection in one act. Re-laying chains prior_ref.
+    async fn lay_category_override(
+        &self,
+        actor: &str,
+        node_id: Uuid,
+        classification: &serde_json::Value,
+    ) -> Result<OverrideRecord, StoreError>;
+
+    /// The latest override on a subject — the active protection.
+    async fn get_active_override(
+        &self,
+        subject_ref: Uuid,
+    ) -> Result<Option<OverrideRecord>, StoreError>;
+
+    /// An agent's only voice on human-held state (IV.2). One lineage per
+    /// (subject, kind): recurrence escalates OPEN → ESCALATED; a SILENCED
+    /// lineage suppresses the attempt, still logged `severity: suppressed`.
+    async fn open_petition(
+        &self,
+        job_id: Uuid,
+        draft: &PetitionDraft,
+    ) -> Result<PetitionRecord, StoreError>;
+
+    /// The three terminal answers: GRANTED (mints the consent), DECLINED,
+    /// SILENCED. Human only.
+    async fn resolve_petition(
+        &self,
+        actor: &str,
+        petition_id: Uuid,
+        decision: ConsentDecision,
+    ) -> Result<PetitionRecord, StoreError>;
+
+    /// IV.5, transactional: validates the chain override → petition →
+    /// consent, applies exactly the granted change, lays the successor
+    /// override (stamped with the consent's decider — the authority is the
+    /// consent, never the Notary), and closes the loop on the petition.
+    /// Idempotent: a retry finding the grant executed returns the successor.
+    async fn execute_grant(
+        &self,
+        notary_job_id: Uuid,
+        petition_id: Uuid,
+    ) -> Result<OverrideRecord, StoreError>;
+
+    /// GRANTED petitions with no completed execution older than the stall
+    /// window — what the supervisor surfaces (SC-C06). Nothing the
+    /// sovereign grants may quietly fail to happen.
+    async fn stalled_grants(&self, stall_ms: i64) -> Result<Vec<PetitionRecord>, StoreError>;
+
+    async fn get_petition(&self, petition_id: Uuid) -> Result<PetitionRecord, StoreError>;
 }

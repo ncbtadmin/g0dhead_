@@ -397,6 +397,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "godhead-notary"
+version = "0.1.0"
+dependencies = [
+ "godhead-intake",
+ "godhead-schemas",
+ "godhead-store",
+ "semver",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "godhead-schemas"
 version = "0.1.0"
 dependencies = [

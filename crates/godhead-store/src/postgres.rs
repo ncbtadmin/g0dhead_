@@ -3,10 +3,12 @@ use crate::interface::Store;
 use crate::secrets;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
-    AgentType, AuditorName, Budgets, ConfigConstant, ConfigTier, Envelope, FlagDraft, FlagStatus,
-    IntakeStatus, JobDraft, JobRecord, JobStatus, Law, LeaseRecord, LogEvent, LogSnapshot,
-    NodeDraft, NodeRecord, NormalizeOutcome, ReadinessFlag, RefusalDraft, RefusalReason,
-    RefusalRecord, SchemaRegistry, Severity, Tier, RECORD_SCHEMA_VERSION,
+    AgentType, AuditorName, Budgets, ConfigConstant, ConfigTier, ConsentDecision, ConsentRecord,
+    ConsentScope, Envelope, FlagDraft, FlagStatus, IntakeStatus, JobDraft, JobRecord, JobStatus,
+    Law, LeaseRecord, LogEvent, LogSnapshot, NodeDraft, NodeRecord, NormalizeOutcome,
+    OverrideBasis, OverrideKind, OverrideRecord, PetitionDraft, PetitionRecord, PetitionStatus,
+    ReadinessFlag, RefusalDraft, RefusalReason, RefusalRecord, SchemaRegistry, Severity, Tier,
+    RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -198,6 +200,67 @@ impl PgStore {
             revision: row.try_get("revision")?,
             envelope: Self::envelope_from_row(row)?,
         })
+    }
+
+    fn override_from_row(row: &PgRow) -> Result<OverrideRecord, StoreError> {
+        let kind: String = row.try_get("kind")?;
+        let basis: String = row.try_get("basis")?;
+        Ok(OverrideRecord {
+            override_id: row.try_get("override_id")?,
+            subject_ref: row.try_get("subject_ref")?,
+            kind: OverrideKind::parse(&kind).map_err(StoreError::from_schema)?,
+            basis: OverrideBasis::parse(&basis).map_err(StoreError::from_schema)?,
+            prior_ref: row.try_get("prior_ref")?,
+            consent_ref: row.try_get("consent_ref")?,
+            protected_state: row.try_get("protected_state")?,
+            user_overridden: row.try_get("user_overridden")?,
+            laid_at: row.try_get("laid_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn petition_from_row(row: &PgRow) -> Result<PetitionRecord, StoreError> {
+        let change_kind: String = row.try_get("change_kind")?;
+        let status: String = row.try_get("status")?;
+        let evidence_refs: serde_json::Value = row.try_get("evidence_refs")?;
+        Ok(PetitionRecord {
+            petition_id: row.try_get("petition_id")?,
+            subject_ref: row.try_get("subject_ref")?,
+            change_kind: OverrideKind::parse(&change_kind).map_err(StoreError::from_schema)?,
+            reason: row.try_get("reason")?,
+            evidence_refs: serde_json::from_value(evidence_refs)
+                .map_err(|e| StoreError::ValidationFailed(format!("stored evidence_refs: {e}")))?,
+            proposed_change: row.try_get("proposed_change")?,
+            status: PetitionStatus::parse(&status).map_err(StoreError::from_schema)?,
+            occurrence_count: row.try_get("occurrence_count")?,
+            consent_ref: row.try_get("consent_ref")?,
+            execution_job_ref: row.try_get("execution_job_ref")?,
+            resolved_at: row.try_get("resolved_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn consent_from_row(row: &PgRow) -> Result<ConsentRecord, StoreError> {
+        let decision: String = row.try_get("decision")?;
+        let scope: String = row.try_get("scope")?;
+        Ok(ConsentRecord {
+            consent_id: row.try_get("consent_id")?,
+            subject_ref: row.try_get("subject_ref")?,
+            decision: ConsentDecision::parse(&decision).map_err(StoreError::from_schema)?,
+            scope: ConsentScope::parse(&scope).map_err(StoreError::from_schema)?,
+            decided_by: row.try_get("decided_by")?,
+            decided_at: row.try_get("decided_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    async fn get_consent(&self, consent_id: Uuid) -> Result<ConsentRecord, StoreError> {
+        let row = sqlx::query("SELECT * FROM consent_records WHERE consent_id = $1")
+            .bind(consent_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such consent {consent_id}")))?;
+        Self::consent_from_row(&row)
     }
 
     fn config_from_row(row: &PgRow) -> Result<ConfigConstant, StoreError> {
@@ -1190,6 +1253,13 @@ impl Store for PgStore {
                 "classification must be an array of bucket entries (doc 2 §2.5)".into(),
             ));
         }
+        // Law IV.1 / SC-C01: a human-held classification is not agent-writable;
+        // the only path through is a granted petition (execute_grant).
+        if self.get_active_override(node_id).await?.is_some() {
+            return Err(StoreError::OverrideConflict(format!(
+                "node {node_id} classification is human-held (user_overridden); petition, never write (Law IV.1–IV.2)"
+            )));
+        }
         let row = sqlx::query(
             r#"UPDATE nodes
                SET classification = $3, revision = revision + 1
@@ -1242,5 +1312,417 @@ impl Store for PgStore {
                 .fetch_all(&self.pool)
                 .await?;
         rows.iter().map(Self::job_from_row).collect()
+    }
+
+    async fn lay_category_override(
+        &self,
+        actor: &str,
+        node_id: Uuid,
+        classification: &serde_json::Value,
+    ) -> Result<OverrideRecord, StoreError> {
+        if !classification.is_array() {
+            return Err(StoreError::ValidationFailed(
+                "classification must be an array of bucket entries (doc 2 §2.5)".into(),
+            ));
+        }
+        if let Some(pattern) = secrets::scan(&classification.to_string()) {
+            return Err(StoreError::SecretDetected(format!(
+                "override state matched secret pattern '{pattern}' (Law XV.2)"
+            )));
+        }
+        let node = self.get_node(node_id).await?;
+        let prior = self.get_active_override(node_id).await?;
+        let mut tx = self.pool.begin().await?;
+        let updated = sqlx::query(
+            r#"UPDATE nodes SET classification = $3, revision = revision + 1
+               WHERE node_id = $1 AND revision = $2"#,
+        )
+        .bind(node_id)
+        .bind(node.revision)
+        .bind(classification)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(StoreError::StaleRevision {
+                expected: node.revision,
+                subject: format!("node:{node_id}"),
+            });
+        }
+        let row = sqlx::query(
+            r#"INSERT INTO override_records
+                 (override_id, subject_ref, kind, basis, prior_ref, consent_ref, protected_state,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, 'CATEGORY_REASSIGNED', 'SOVEREIGN_HAND', $3, NULL, $4,
+                       'OverrideRecord', $5, $6)
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(node_id)
+        .bind(prior.map(|p| p.override_id))
+        .bind(classification)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.append_log(
+            &node_id.to_string(),
+            LogEvent::OverrideLaid,
+            &serde_json::json!({ "kind": "CATEGORY_REASSIGNED", "basis": "SOVEREIGN_HAND" }),
+            Severity::Info,
+            actor,
+        )
+        .await?;
+        Self::override_from_row(&row)
+    }
+
+    async fn get_active_override(
+        &self,
+        subject_ref: Uuid,
+    ) -> Result<Option<OverrideRecord>, StoreError> {
+        let row = sqlx::query(
+            r#"SELECT * FROM override_records WHERE subject_ref = $1
+               ORDER BY produced_at DESC, override_id DESC LIMIT 1"#,
+        )
+        .bind(subject_ref)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref().map(Self::override_from_row).transpose()
+    }
+
+    async fn open_petition(
+        &self,
+        job_id: Uuid,
+        draft: &PetitionDraft,
+    ) -> Result<PetitionRecord, StoreError> {
+        let job = self.guard_actor(job_id, "open_petition", false).await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "petitions are opened during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        let serialized = format!("{} {}", draft.reason, draft.proposed_change);
+        if let Some(pattern) = secrets::scan(&serialized) {
+            return Err(StoreError::SecretDetected(format!(
+                "petition matched secret pattern '{pattern}' (Law XV.2)"
+            )));
+        }
+        // v1: petitions concern existing overrides — an agent believing a
+        // hand was laid in error (IV.2).
+        if self.get_active_override(draft.subject_ref).await?.is_none() {
+            return Err(StoreError::ValidationFailed(format!(
+                "subject {} carries no override; there is nothing to petition (IV.2)",
+                draft.subject_ref
+            )));
+        }
+        let existing = sqlx::query(
+            "SELECT * FROM petition_records WHERE subject_ref = $1 AND change_kind = $2",
+        )
+        .bind(draft.subject_ref)
+        .bind(draft.change_kind.as_str())
+        .fetch_optional(&self.pool)
+        .await?;
+        let existing = existing.as_ref().map(Self::petition_from_row).transpose()?;
+
+        match existing {
+            None => {
+                let row = sqlx::query(
+                    r#"INSERT INTO petition_records
+                         (petition_id, subject_ref, change_kind, reason, evidence_refs,
+                          proposed_change, schema_name, schema_version, produced_by)
+                       VALUES ($1, $2, $3, $4, $5, $6, 'PetitionRecord', $7, $8::text)
+                       RETURNING *"#,
+                )
+                .bind(Uuid::now_v7())
+                .bind(draft.subject_ref)
+                .bind(draft.change_kind.as_str())
+                .bind(&draft.reason)
+                .bind(serde_json::to_value(&draft.evidence_refs).expect("string vec serializes"))
+                .bind(&draft.proposed_change)
+                .bind(RECORD_SCHEMA_VERSION)
+                .bind(job_id)
+                .fetch_one(&self.pool)
+                .await?;
+                self.append_log(
+                    &draft.subject_ref.to_string(),
+                    LogEvent::PetitionOpened,
+                    &serde_json::json!({ "change_kind": draft.change_kind.as_str(), "occurrence": 1 }),
+                    Severity::Info,
+                    &job_id.to_string(),
+                )
+                .await?;
+                Self::petition_from_row(&row)
+            }
+            Some(prior) => match prior.status {
+                // IV.2: SILENCED auto-suppresses — still counted, still
+                // logged severity: suppressed, never purged (SC-C03).
+                PetitionStatus::Silenced => {
+                    let row = sqlx::query(
+                        r#"UPDATE petition_records SET occurrence_count = occurrence_count + 1
+                           WHERE petition_id = $1 RETURNING *"#,
+                    )
+                    .bind(prior.petition_id)
+                    .fetch_one(&self.pool)
+                    .await?;
+                    self.append_log(
+                        &draft.subject_ref.to_string(),
+                        LogEvent::PetitionOpened,
+                        &serde_json::json!({
+                            "change_kind": draft.change_kind.as_str(),
+                            "suppressed": true,
+                        }),
+                        Severity::Suppressed,
+                        &job_id.to_string(),
+                    )
+                    .await?;
+                    Self::petition_from_row(&row)
+                }
+                // A pending grant is not re-petitionable; the loop must
+                // close first (IV.5).
+                PetitionStatus::Granted if prior.execution_job_ref.is_none() => {
+                    Err(StoreError::ValidationFailed(format!(
+                        "petition {} is GRANTED and awaiting execution; nothing to ask",
+                        prior.petition_id
+                    )))
+                }
+                // Recurrence escalates: OPEN/DECLINED/executed-GRANTED
+                // lineages all become ESCALATED with the count advanced.
+                _ => {
+                    let row = sqlx::query(
+                        r#"UPDATE petition_records
+                           SET occurrence_count = occurrence_count + 1, status = 'ESCALATED',
+                               reason = $2, proposed_change = $3, consent_ref = NULL,
+                               execution_job_ref = NULL, resolved_at = NULL
+                           WHERE petition_id = $1 RETURNING *"#,
+                    )
+                    .bind(prior.petition_id)
+                    .bind(&draft.reason)
+                    .bind(&draft.proposed_change)
+                    .fetch_one(&self.pool)
+                    .await?;
+                    self.append_log(
+                        &draft.subject_ref.to_string(),
+                        LogEvent::PetitionOpened,
+                        &serde_json::json!({
+                            "change_kind": draft.change_kind.as_str(),
+                            "occurrence": prior.occurrence_count + 1,
+                            "escalated": true,
+                        }),
+                        Severity::Info,
+                        &job_id.to_string(),
+                    )
+                    .await?;
+                    Self::petition_from_row(&row)
+                }
+            },
+        }
+    }
+
+    async fn resolve_petition(
+        &self,
+        actor: &str,
+        petition_id: Uuid,
+        decision: ConsentDecision,
+    ) -> Result<PetitionRecord, StoreError> {
+        let petition = self.get_petition(petition_id).await?;
+        if !matches!(
+            petition.status,
+            PetitionStatus::Open | PetitionStatus::Escalated
+        ) {
+            return Err(StoreError::ValidationFailed(format!(
+                "petition {petition_id} is {}; only OPEN or ESCALATED petitions resolve",
+                petition.status
+            )));
+        }
+        let (new_status, consent_id) = match decision {
+            ConsentDecision::Granted => {
+                let consent_id = Uuid::now_v7();
+                sqlx::query(
+                    r#"INSERT INTO consent_records
+                         (consent_id, subject_ref, decision, scope, decided_by,
+                          schema_name, schema_version, produced_by)
+                       VALUES ($1, $2, 'GRANTED', 'ITEM', $3, 'ConsentRecord', $4, $3)"#,
+                )
+                .bind(consent_id)
+                .bind(petition_id)
+                .bind(actor)
+                .bind(RECORD_SCHEMA_VERSION)
+                .execute(&self.pool)
+                .await?;
+                (PetitionStatus::Granted, Some(consent_id))
+            }
+            ConsentDecision::Declined => (PetitionStatus::Declined, None),
+            ConsentDecision::Silenced => (PetitionStatus::Silenced, None),
+            other => {
+                return Err(StoreError::ValidationFailed(format!(
+                    "{other} is not a petition answer; the terminal answers are GRANTED, DECLINED, SILENCED (IV.2)"
+                )))
+            }
+        };
+        let row = sqlx::query(
+            r#"UPDATE petition_records
+               SET status = $2, consent_ref = $3, resolved_at = now()
+               WHERE petition_id = $1 RETURNING *"#,
+        )
+        .bind(petition_id)
+        .bind(new_status.as_str())
+        .bind(consent_id)
+        .fetch_one(&self.pool)
+        .await?;
+        self.append_log(
+            &petition.subject_ref.to_string(),
+            LogEvent::PetitionResolved,
+            &serde_json::json!({ "petition": petition_id.to_string(), "decision": new_status.as_str() }),
+            Severity::Info,
+            actor,
+        )
+        .await?;
+        Self::petition_from_row(&row)
+    }
+
+    async fn execute_grant(
+        &self,
+        notary_job_id: Uuid,
+        petition_id: Uuid,
+    ) -> Result<OverrideRecord, StoreError> {
+        let job = self
+            .guard_actor(notary_job_id, "execute_grant", false)
+            .await?;
+        if job.agent_type != AgentType::Notary {
+            return Err(StoreError::ValidationFailed(format!(
+                "only a summoned Notary executes consent, not {} (Book II §3)",
+                job.agent_type
+            )));
+        }
+        let petition = self.get_petition(petition_id).await?;
+        if petition.status != PetitionStatus::Granted {
+            return Err(StoreError::ValidationFailed(format!(
+                "petition {petition_id} is {}, not GRANTED; there is no consent to execute",
+                petition.status
+            )));
+        }
+        // Idempotent retry (SC-A03 discipline): already executed → converge
+        // on the successor already laid.
+        if petition.execution_job_ref.is_some() {
+            let active = self.get_active_override(petition.subject_ref).await?;
+            if let Some(successor) = active {
+                if successor.consent_ref == petition.consent_ref {
+                    return Ok(successor);
+                }
+            }
+            return Err(StoreError::ValidationFailed(format!(
+                "petition {petition_id} records an execution but no matching successor override resolves"
+            )));
+        }
+        // The chain: override → petition → consent, every link resolving.
+        let consent_id = petition.consent_ref.ok_or_else(|| {
+            StoreError::ValidationFailed(format!(
+                "GRANTED petition {petition_id} carries no consent_ref — the chain does not resolve"
+            ))
+        })?;
+        let consent = self.get_consent(consent_id).await?;
+        if consent.decision != ConsentDecision::Granted || consent.subject_ref != petition_id {
+            return Err(StoreError::ValidationFailed(format!(
+                "consent {consent_id} does not grant petition {petition_id} — the chain does not resolve"
+            )));
+        }
+        let prior = self
+            .get_active_override(petition.subject_ref)
+            .await?
+            .ok_or_else(|| {
+                StoreError::ValidationFailed(format!(
+                    "no active override on subject {} — the chain does not resolve",
+                    petition.subject_ref
+                ))
+            })?;
+        if petition.change_kind != OverrideKind::CategoryReassigned {
+            return Err(StoreError::ValidationFailed(format!(
+                "{} has no executable surface in v1 (SLICE_03 §2)",
+                petition.change_kind
+            )));
+        }
+        // The subject must still validate when the Notary arrives (IV.5).
+        let node = self.get_node(petition.subject_ref).await?;
+
+        let mut tx = self.pool.begin().await?;
+        let updated = sqlx::query(
+            r#"UPDATE nodes SET classification = $3, revision = revision + 1
+               WHERE node_id = $1 AND revision = $2"#,
+        )
+        .bind(node.node_id)
+        .bind(node.revision)
+        .bind(&petition.proposed_change)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(StoreError::StaleRevision {
+                expected: node.revision,
+                subject: format!("node:{}", node.node_id),
+            });
+        }
+        // The successor override: the datum stays human-held (IV.5). Stamped
+        // with the consent's decider — the authority is the consent.
+        let row = sqlx::query(
+            r#"INSERT INTO override_records
+                 (override_id, subject_ref, kind, basis, prior_ref, consent_ref, protected_state,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, 'GRANTED_PETITION', $4, $5, $6, 'OverrideRecord', $7, $8)
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(petition.subject_ref)
+        .bind(petition.change_kind.as_str())
+        .bind(prior.override_id)
+        .bind(consent_id)
+        .bind(&petition.proposed_change)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(&consent.decided_by)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query("UPDATE petition_records SET execution_job_ref = $2 WHERE petition_id = $1")
+            .bind(petition_id)
+            .bind(notary_job_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        // Provenance linking all four: override, petition, consent, result (IV.5).
+        self.append_log(
+            &petition.subject_ref.to_string(),
+            LogEvent::OverrideLaid,
+            &serde_json::json!({
+                "basis": "GRANTED_PETITION",
+                "prior_override": prior.override_id.to_string(),
+                "petition": petition_id.to_string(),
+                "consent": consent_id.to_string(),
+                "executed_by_job": notary_job_id.to_string(),
+            }),
+            Severity::Info,
+            &consent.decided_by,
+        )
+        .await?;
+        Self::override_from_row(&row)
+    }
+
+    async fn stalled_grants(&self, stall_ms: i64) -> Result<Vec<PetitionRecord>, StoreError> {
+        let rows = sqlx::query(
+            r#"SELECT * FROM petition_records
+               WHERE status = 'GRANTED' AND execution_job_ref IS NULL
+                 AND resolved_at < now() - ($1::double precision * interval '1 millisecond')
+               ORDER BY resolved_at"#,
+        )
+        .bind(stall_ms)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(Self::petition_from_row).collect()
+    }
+
+    async fn get_petition(&self, petition_id: Uuid) -> Result<PetitionRecord, StoreError> {
+        let row = sqlx::query("SELECT * FROM petition_records WHERE petition_id = $1")
+            .bind(petition_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such petition {petition_id}")))?;
+        Self::petition_from_row(&row)
     }
 }

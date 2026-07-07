@@ -4,6 +4,7 @@ members = [
     "crates/godhead-schemas",
     "crates/godhead-store",
     "crates/godhead-intake",
+    "crates/godhead-notary",
 ]
 
 [workspace.package]

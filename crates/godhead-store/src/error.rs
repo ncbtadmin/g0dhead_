@@ -21,6 +21,10 @@ pub enum StoreError {
     /// Law XI.3 — compare-and-swap lost; the writer re-reads, never overwrites.
     #[error("STALE_REVISION: expected revision {expected}, subject {subject}")]
     StaleRevision { expected: i32, subject: String },
+    /// Law IV.1 — the subject is human-held; mutation requires a resolving
+    /// consent. The sovereign's hand, once laid, is not lifted by ours.
+    #[error("OVERRIDE_CONFLICT: {0}")]
+    OverrideConflict(String),
     /// Law XV.2 — a secret-shaped string in an outbound write.
     #[error("SECRET_DETECTED: {0}")]
     SecretDetected(String),
