@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/godhead-schemas",
+    "crates/godhead-store",
+]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v7", "serde"] }
+semver = { version = "1", features = ["serde"] }
+thiserror = "2"
+time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+regex = "1"
+
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
