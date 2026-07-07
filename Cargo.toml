@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/godhead-schemas",
     "crates/godhead-store",
+    "crates/godhead-intake",
 ]
 
 [workspace.package]
@@ -20,6 +21,7 @@ time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "json"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 regex = "1"
+sha2 = "0.10"
 
 [workspace.lints.rust]
 warnings = "deny"

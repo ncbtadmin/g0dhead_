@@ -2,7 +2,8 @@ use crate::error::StoreError;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
     ConfigConstant, ConfigTier, FlagDraft, FlagStatus, JobDraft, JobRecord, JobStatus, LeaseRecord,
-    LogEvent, LogSnapshot, ReadinessFlag, RefusalDraft, RefusalRecord, Severity,
+    LogEvent, LogSnapshot, NodeDraft, NodeRecord, NormalizeOutcome, ReadinessFlag, RefusalDraft,
+    RefusalRecord, Severity,
 };
 use uuid::Uuid;
 
@@ -154,4 +155,52 @@ pub trait Store {
 
     /// The reference metrics query: refusals score as compliance, never error.
     async fn compliance_metrics(&self, job_ids: &[Uuid]) -> Result<ComplianceMetrics, StoreError>;
+
+    // -- nodes (doc 3 §2.1; doc 2) --
+
+    /// Creates the atom and writes its first log snapshot (INTAKE_RAW_COPIED
+    /// with filename, filetype, size, normalized-state) in the same act —
+    /// first-log-on-copy is a store guarantee (doc 2 §2.2), not caller
+    /// diligence. Raw reference fields exist only in this call.
+    async fn create_node(
+        &self,
+        job_id: Uuid,
+        node_id: Uuid,
+        draft: &NodeDraft,
+    ) -> Result<NodeRecord, StoreError>;
+
+    async fn get_node(&self, node_id: Uuid) -> Result<NodeRecord, StoreError>;
+
+    /// Records a normalization outcome (success, decode failure, or
+    /// unsupported type) under CAS, logging NORMALIZED — severity warning
+    /// when the outcome is a surfaced failure (flag, don't bury).
+    async fn set_node_derivative(
+        &self,
+        job_id: Uuid,
+        node_id: Uuid,
+        expected_revision: i32,
+        outcome: &NormalizeOutcome,
+    ) -> Result<NodeRecord, StoreError>;
+
+    /// Records the floor classification under CAS, logging CLASSIFIED.
+    async fn set_node_classification(
+        &self,
+        job_id: Uuid,
+        node_id: Uuid,
+        expected_revision: i32,
+        classification: &serde_json::Value,
+    ) -> Result<NodeRecord, StoreError>;
+
+    // -- orchestration reads (doc 3 §3.2) --
+
+    /// ACTIVE flags for one stage, in store order — the dispatcher's watch.
+    async fn list_active_flags(&self, stage: &str) -> Result<Vec<ReadinessFlag>, StoreError>;
+
+    /// Every flag a job has written, any status.
+    async fn list_flags_for_job(&self, job_id: Uuid) -> Result<Vec<ReadinessFlag>, StoreError>;
+
+    /// Jobs whose input_refs contain the given ref — the supervisor's
+    /// reconstruction primitive (doc 3 §4.1: the index is rebuilt from
+    /// flags and job records, never from private memory).
+    async fn list_jobs_by_input_ref(&self, input_ref: Uuid) -> Result<Vec<JobRecord>, StoreError>;
 }

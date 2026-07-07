@@ -28,6 +28,7 @@ closed_enum! {
         Refusal => "REFUSAL",
         Violation => "VIOLATION",
         JobTransition => "JOB_TRANSITION",
+        Classified => "CLASSIFIED",
     }
 }
 

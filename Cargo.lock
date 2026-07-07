@@ -382,6 +382,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "godhead-intake"
+version = "0.1.0"
+dependencies = [
+ "godhead-schemas",
+ "godhead-store",
+ "semver",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "godhead-schemas"
 version = "0.1.0"
 dependencies = [

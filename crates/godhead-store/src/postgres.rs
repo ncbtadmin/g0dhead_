@@ -4,9 +4,9 @@ use crate::secrets;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
     AgentType, AuditorName, Budgets, ConfigConstant, ConfigTier, Envelope, FlagDraft, FlagStatus,
-    JobDraft, JobRecord, JobStatus, Law, LeaseRecord, LogEvent, LogSnapshot, ReadinessFlag,
-    RefusalDraft, RefusalReason, RefusalRecord, SchemaRegistry, Severity, Tier,
-    RECORD_SCHEMA_VERSION,
+    IntakeStatus, JobDraft, JobRecord, JobStatus, Law, LeaseRecord, LogEvent, LogSnapshot,
+    NodeDraft, NodeRecord, NormalizeOutcome, ReadinessFlag, RefusalDraft, RefusalReason,
+    RefusalRecord, SchemaRegistry, Severity, Tier, RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -176,6 +176,26 @@ impl PgStore {
             acquired_at: row.try_get("acquired_at")?,
             heartbeat_at: row.try_get("heartbeat_at")?,
             expires_at: row.try_get("expires_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn node_from_row(row: &PgRow) -> Result<NodeRecord, StoreError> {
+        let intake_status: String = row.try_get("intake_status")?;
+        Ok(NodeRecord {
+            node_id: row.try_get("node_id")?,
+            filename: row.try_get("filename")?,
+            filetype: row.try_get("filetype")?,
+            size_bytes: row.try_get("size_bytes")?,
+            raw_path: row.try_get("raw_path")?,
+            raw_sha256: row.try_get("raw_sha256")?,
+            derivative_path: row.try_get("derivative_path")?,
+            derivative_sha256: row.try_get("derivative_sha256")?,
+            normalized: row.try_get("normalized")?,
+            intake_status: IntakeStatus::parse(&intake_status).map_err(StoreError::from_schema)?,
+            classification: row.try_get("classification")?,
+            notice: row.try_get("notice")?,
+            revision: row.try_get("revision")?,
             envelope: Self::envelope_from_row(row)?,
         })
     }
@@ -999,5 +1019,228 @@ impl Store for PgStore {
             }
         }
         Ok(metrics)
+    }
+
+    async fn create_node(
+        &self,
+        job_id: Uuid,
+        node_id: Uuid,
+        draft: &NodeDraft,
+    ) -> Result<NodeRecord, StoreError> {
+        let job = self.guard_actor(job_id, "create_node", false).await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "nodes are created during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if draft.raw_sha256.len() != 64 || !draft.raw_sha256.chars().all(|c| c.is_ascii_hexdigit())
+        {
+            return Err(StoreError::ValidationFailed(
+                "raw_sha256 must be a 64-hex-char SHA-256 digest".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            r#"INSERT INTO nodes
+                 (node_id, filename, filetype, size_bytes, raw_path, raw_sha256,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, 'NodeRecord', $7, $8::text)
+               RETURNING *"#,
+        )
+        .bind(node_id)
+        .bind(&draft.filename)
+        .bind(&draft.filetype)
+        .bind(draft.size_bytes)
+        .bind(&draft.raw_path)
+        .bind(&draft.raw_sha256)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        // First-log-on-copy (doc 2 §2.2): the required fields, in the same act.
+        self.append_log(
+            &node_id.to_string(),
+            LogEvent::IntakeRawCopied,
+            &serde_json::json!({
+                "filename": draft.filename,
+                "filetype": draft.filetype,
+                "size_bytes": draft.size_bytes,
+                "normalized": false,
+            }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Self::node_from_row(&row)
+    }
+
+    async fn get_node(&self, node_id: Uuid) -> Result<NodeRecord, StoreError> {
+        let row = sqlx::query("SELECT * FROM nodes WHERE node_id = $1")
+            .bind(node_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such node {node_id}")))?;
+        Self::node_from_row(&row)
+    }
+
+    async fn set_node_derivative(
+        &self,
+        job_id: Uuid,
+        node_id: Uuid,
+        expected_revision: i32,
+        outcome: &NormalizeOutcome,
+    ) -> Result<NodeRecord, StoreError> {
+        let job = self
+            .guard_actor(job_id, "set_node_derivative", false)
+            .await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "node mutations happen during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        let (d_path, d_sha, normalized, status, notice, severity) = match outcome {
+            NormalizeOutcome::Normalized {
+                derivative_path,
+                derivative_sha256,
+            } => (
+                Some(derivative_path.as_str()),
+                Some(derivative_sha256.as_str()),
+                true,
+                IntakeStatus::Normalized,
+                None,
+                Severity::Info,
+            ),
+            NormalizeOutcome::DecodeFailed { reason } => (
+                None,
+                None,
+                false,
+                IntakeStatus::DecodeFailed,
+                Some(reason.as_str()),
+                Severity::Warning,
+            ),
+            NormalizeOutcome::Unsupported { notice } => (
+                None,
+                None,
+                false,
+                IntakeStatus::Unsupported,
+                Some(notice.as_str()),
+                Severity::Warning,
+            ),
+        };
+        let row = sqlx::query(
+            r#"UPDATE nodes
+               SET derivative_path = $3, derivative_sha256 = $4, normalized = $5,
+                   intake_status = $6, notice = $7, revision = revision + 1
+               WHERE node_id = $1 AND revision = $2
+               RETURNING *"#,
+        )
+        .bind(node_id)
+        .bind(expected_revision)
+        .bind(d_path)
+        .bind(d_sha)
+        .bind(normalized)
+        .bind(status.as_str())
+        .bind(notice)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            // Missing node vs. stale CAS — but never a silent overwrite.
+            StoreError::StaleRevision {
+                expected: expected_revision,
+                subject: format!("node:{node_id}"),
+            }
+        })?;
+        // Flag, don't bury (doc 2 §2.3): failures are surfaced states.
+        self.append_log(
+            &node_id.to_string(),
+            LogEvent::Normalized,
+            &serde_json::json!({
+                "outcome": status.as_str(),
+                "derivative_sha256": d_sha,
+                "notice": notice,
+            }),
+            severity,
+            &job_id.to_string(),
+        )
+        .await?;
+        Self::node_from_row(&row)
+    }
+
+    async fn set_node_classification(
+        &self,
+        job_id: Uuid,
+        node_id: Uuid,
+        expected_revision: i32,
+        classification: &serde_json::Value,
+    ) -> Result<NodeRecord, StoreError> {
+        let job = self
+            .guard_actor(job_id, "set_node_classification", false)
+            .await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "node mutations happen during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if !classification.is_array() {
+            return Err(StoreError::ValidationFailed(
+                "classification must be an array of bucket entries (doc 2 §2.5)".into(),
+            ));
+        }
+        let row = sqlx::query(
+            r#"UPDATE nodes
+               SET classification = $3, revision = revision + 1
+               WHERE node_id = $1 AND revision = $2
+               RETURNING *"#,
+        )
+        .bind(node_id)
+        .bind(expected_revision)
+        .bind(classification)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| StoreError::StaleRevision {
+            expected: expected_revision,
+            subject: format!("node:{node_id}"),
+        })?;
+        self.append_log(
+            &node_id.to_string(),
+            LogEvent::Classified,
+            &serde_json::json!({ "classification": classification, "low_trust": true }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Self::node_from_row(&row)
+    }
+
+    async fn list_active_flags(&self, stage: &str) -> Result<Vec<ReadinessFlag>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT * FROM readiness_flags WHERE stage = $1 AND status = 'ACTIVE' ORDER BY produced_at",
+        )
+        .bind(stage)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(Self::flag_from_row).collect()
+    }
+
+    async fn list_flags_for_job(&self, job_id: Uuid) -> Result<Vec<ReadinessFlag>, StoreError> {
+        let rows =
+            sqlx::query("SELECT * FROM readiness_flags WHERE job_id = $1 ORDER BY produced_at")
+                .bind(job_id)
+                .fetch_all(&self.pool)
+                .await?;
+        rows.iter().map(Self::flag_from_row).collect()
+    }
+
+    async fn list_jobs_by_input_ref(&self, input_ref: Uuid) -> Result<Vec<JobRecord>, StoreError> {
+        let rows =
+            sqlx::query("SELECT * FROM job_records WHERE input_refs @> $1 ORDER BY produced_at")
+                .bind(serde_json::json!([input_ref.to_string()]))
+                .fetch_all(&self.pool)
+                .await?;
+        rows.iter().map(Self::job_from_row).collect()
     }
 }

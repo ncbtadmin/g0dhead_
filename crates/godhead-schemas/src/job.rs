@@ -7,7 +7,11 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 closed_enum! {
-    /// A.2 — the closed roster of ephemeral agent kinds.
+    /// A.2 — the closed roster of ephemeral agent kinds. INTAKE is a v1
+    /// addition (slice 2): the deterministic intake floor labors under
+    /// JobRecords too — idempotency and recovery (doc 3 §2.7) bind the
+    /// handleless hammer exactly as they bind agents — but the Dogma's
+    /// roster names only true agents, so the floor gets its own entry.
     AgentType {
         Slave => "SLAVE",
         Aggregator => "AGGREGATOR",
@@ -16,6 +20,7 @@ closed_enum! {
         Reconciler => "RECONCILER",
         Student => "STUDENT",
         Teacher => "TEACHER",
+        Intake => "INTAKE",
     }
 }
 
