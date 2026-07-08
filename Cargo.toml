@@ -7,6 +7,7 @@ members = [
     "crates/godhead-notary",
     "crates/godhead-ml",
     "crates/godhead-audit",
+    "crates/godhead-toolcall",
 ]
 
 [workspace.package]
