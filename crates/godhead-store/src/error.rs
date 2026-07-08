@@ -25,6 +25,10 @@ pub enum StoreError {
     /// consent. The sovereign's hand, once laid, is not lifted by ours.
     #[error("OVERRIDE_CONFLICT: {0}")]
     OverrideConflict(String),
+    /// Law IX.3 — an environment failed floor validation at mount; no work
+    /// occurs atop an invalid room.
+    #[error("ENV_INVALID: {0}")]
+    EnvInvalid(String),
     /// Law XV.2 — a secret-shaped string in an outbound write.
     #[error("SECRET_DETECTED: {0}")]
     SecretDetected(String),

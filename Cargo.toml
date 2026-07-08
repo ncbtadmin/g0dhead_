@@ -8,6 +8,7 @@ members = [
     "crates/godhead-ml",
     "crates/godhead-audit",
     "crates/godhead-toolcall",
+    "crates/godhead-scriptorium",
 ]
 
 [workspace.package]

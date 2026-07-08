@@ -31,6 +31,9 @@ closed_enum! {
         Classified => "CLASSIFIED",
         Amended => "AMENDED",
         ProposalResolved => "PROPOSAL_RESOLVED",
+        EnvEstablished => "ENV_ESTABLISHED",
+        EnvOrphaned => "ENV_ORPHANED",
+        PairingFormed => "PAIRING_FORMED",
     }
 }
 

@@ -17,6 +17,7 @@ mod macros;
 
 pub mod config;
 pub mod envelope;
+pub mod environment;
 pub mod error;
 pub mod flag;
 pub mod job;
@@ -31,6 +32,10 @@ pub mod sovereignty;
 
 pub use config::{ConfigConstant, ConfigTier};
 pub use envelope::Envelope;
+pub use environment::{
+    roman_ordinal, roster_index, EnvItem, EnvKind, EnvStatus, EnvironmentRecord, PairingKind,
+    PairingRecord,
+};
 pub use error::SchemaError;
 pub use flag::{Certifies, FlagDraft, FlagStatus, ReadinessFlag, Validator};
 pub use job::{AgentType, AuditorName, Budgets, JobDraft, JobRecord, JobStatus, Tier};

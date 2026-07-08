@@ -2,10 +2,11 @@ use crate::error::StoreError;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
     AuditReport, AuditReportDraft, ConfigConstant, ConfigTier, ConsentDecision, EmbeddingRecord,
-    FlagDraft, FlagStatus, JobDraft, JobRecord, JobStatus, JointProposal, LeaseRecord, LinkRecord,
-    LiveWeights, LogEvent, LogSnapshot, MatrixRecord, NodeDraft, NodeRecord, NormalizeOutcome,
-    OverrideRecord, PetitionDraft, PetitionRecord, ProposalDraft, ReadinessFlag, RebalanceState,
-    RefusalDraft, RefusalRecord, Severity,
+    EnvItem, EnvKind, EnvironmentRecord, FlagDraft, FlagStatus, JobDraft, JobRecord, JobStatus,
+    JointProposal, LeaseRecord, LinkRecord, LiveWeights, LogEvent, LogSnapshot, MatrixRecord,
+    NodeDraft, NodeRecord, NormalizeOutcome, OverrideRecord, PairingKind, PairingRecord,
+    PetitionDraft, PetitionRecord, ProposalDraft, ReadinessFlag, RebalanceState, RefusalDraft,
+    RefusalRecord, Severity, Tier,
 };
 use uuid::Uuid;
 
@@ -477,4 +478,71 @@ pub trait Store {
         matrix_id: Uuid,
         consent_id: Uuid,
     ) -> Result<MatrixRecord, StoreError>;
+
+    // -- environments & pairings (Laws IX–X) --
+
+    /// Establishes an environment around a matrix, conferring title and
+    /// name deterministically at establishment (X.1, X.4) — the conferral
+    /// is recorded immutably. The establishing job's tier is the
+    /// environment's; REGULAR establishes nothing.
+    async fn establish_environment(
+        &self,
+        job_id: Uuid,
+        kind: EnvKind,
+        matrix_ref: Uuid,
+        tier: Tier,
+    ) -> Result<EnvironmentRecord, StoreError>;
+
+    async fn get_environment(&self, env_id: Uuid) -> Result<EnvironmentRecord, StoreError>;
+
+    /// Curates the contents index (an election, a published artifact).
+    /// Refused on a non-LIVE environment: an ORPHANED room is not a
+    /// workplace (SC-G07). `provenance` is a ProvenanceChain (C.2 shape).
+    async fn add_env_item(
+        &self,
+        job_id: Uuid,
+        env_id: Uuid,
+        item_ref: Uuid,
+        provenance: &serde_json::Value,
+        flagged: bool,
+    ) -> Result<EnvItem, StoreError>;
+
+    async fn env_items(&self, env_id: Uuid) -> Result<Vec<EnvItem>, StoreError>;
+
+    /// The Law IX.3 mount: floor validation before any work. ENV_INVALID
+    /// on any failure — record malformed, tier/title disagreement, an
+    /// item that does not resolve, or a provenance chain that does not
+    /// walk root-to-leaf (SC-G01, G05, G06). ORPHANED/DISSOLVED are
+    /// unmountable for work (SC-G07).
+    async fn mount_environment(
+        &self,
+        job_id: Uuid,
+        env_id: Uuid,
+    ) -> Result<EnvironmentRecord, StoreError>;
+
+    /// Scoping has force (IX.4) with the Pairing Exception (IX.5): a read
+    /// is permitted iff `target_ref` is in the env's contents index, or an
+    /// allowlist item (the reader's own job or lease), or a *flagged* item
+    /// of a paired counterpart environment. Otherwise rejected and logged
+    /// (severity: violation). Ok(()) means permitted.
+    async fn env_scoped_read(
+        &self,
+        reader_job_id: Uuid,
+        env_id: Uuid,
+        target_ref: Uuid,
+    ) -> Result<(), StoreError>;
+
+    /// Forms a pairing (X.5): tiers must match kind; REGULAR anywhere
+    /// fails. The pairing record is the grant the Exception reads.
+    async fn form_pairing(
+        &self,
+        teacher_env_ref: Uuid,
+        student_env_ref: Uuid,
+        matrix_ref: Uuid,
+        kind: PairingKind,
+    ) -> Result<PairingRecord, StoreError>;
+
+    /// LIVE → ORPHANED: the dependency is lost; the room becomes a
+    /// read-only archive (A.8).
+    async fn orphan_environment(&self, env_id: Uuid) -> Result<EnvironmentRecord, StoreError>;
 }

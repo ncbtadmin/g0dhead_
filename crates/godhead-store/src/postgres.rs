@@ -3,14 +3,15 @@ use crate::interface::Store;
 use crate::secrets;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
-    AgentType, AmendmentKind, AuditReport, AuditReportDraft, AuditorKind, AuditorName, Budgets,
-    Claim, ConfigConstant, ConfigTier, ConsentDecision, ConsentRecord, ConsentScope,
-    EmbeddingRecord, Envelope, FlagDraft, FlagStatus, IntakeStatus, JobDraft, JobRecord, JobStatus,
+    roman_ordinal, roster_index, AgentType, AmendmentKind, AuditReport, AuditReportDraft,
+    AuditorKind, AuditorName, Budgets, Claim, ConfigConstant, ConfigTier, ConsentDecision,
+    ConsentRecord, ConsentScope, EmbeddingRecord, EnvItem, EnvKind, EnvStatus, Envelope,
+    EnvironmentRecord, FlagDraft, FlagStatus, IntakeStatus, JobDraft, JobRecord, JobStatus,
     JointProposal, Law, LeaseRecord, LinkRecord, LiveWeights, LogEvent, LogSnapshot, MatrixRecord,
     MatrixStatus, NodeDraft, NodeRecord, NormalizeOutcome, OverrideBasis, OverrideKind,
-    OverrideRecord, PetitionDraft, PetitionRecord, PetitionStatus, ProposalDraft, ReadinessFlag,
-    RebalanceState, RefusalDraft, RefusalReason, RefusalRecord, ReportKind, SchemaRegistry,
-    Severity, Tier, Verdict, RECORD_SCHEMA_VERSION,
+    OverrideRecord, PairingKind, PairingRecord, PetitionDraft, PetitionRecord, PetitionStatus,
+    ProposalDraft, ReadinessFlag, RebalanceState, RefusalDraft, RefusalReason, RefusalRecord,
+    ReportKind, SchemaRegistry, Severity, Tier, Verdict, RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -406,6 +407,139 @@ impl PgStore {
         Ok(())
     }
 
+    fn environment_from_row(row: &PgRow) -> Result<EnvironmentRecord, StoreError> {
+        let kind: String = row.try_get("kind")?;
+        let tier: String = row.try_get("tier")?;
+        let status: String = row.try_get("status")?;
+        Ok(EnvironmentRecord {
+            env_id: row.try_get("env_id")?,
+            kind: EnvKind::parse(&kind).map_err(StoreError::from_schema)?,
+            matrix_ref: row.try_get("matrix_ref")?,
+            tier: Tier::parse(&tier).map_err(StoreError::from_schema)?,
+            title: row.try_get("title")?,
+            name: row.try_get("name")?,
+            established_by: row.try_get("established_by")?,
+            established_at: row.try_get("established_at")?,
+            status: EnvStatus::parse(&status).map_err(StoreError::from_schema)?,
+            revision: row.try_get("revision")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn env_item_from_row(row: &PgRow) -> Result<EnvItem, StoreError> {
+        Ok(EnvItem {
+            env_id: row.try_get("env_id")?,
+            item_ref: row.try_get("item_ref")?,
+            provenance: row.try_get("provenance")?,
+            flagged: row.try_get("flagged")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn pairing_from_row(row: &PgRow) -> Result<PairingRecord, StoreError> {
+        let kind: String = row.try_get("kind")?;
+        Ok(PairingRecord {
+            pairing_id: row.try_get("pairing_id")?,
+            kind: PairingKind::parse(&kind).map_err(StoreError::from_schema)?,
+            teacher_env_ref: row.try_get("teacher_env_ref")?,
+            student_env_ref: row.try_get("student_env_ref")?,
+            matrix_ref: row.try_get("matrix_ref")?,
+            formed_at: row.try_get("formed_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    /// The mount-time provenance walk (Handbook §2.2, SC-G06): a chain must
+    /// be non-empty, rooted in a human hand (CANON|WRIT|BRIEF), contiguous
+    /// in `link_seq`, and every `produced` ref must resolve to a live
+    /// record. A room that cannot explain itself is invalid.
+    async fn validate_provenance_chain(&self, chain: &serde_json::Value) -> Result<(), StoreError> {
+        let entries = chain.as_array().ok_or_else(|| {
+            StoreError::EnvInvalid("provenance chain must be an array (C.2)".into())
+        })?;
+        if entries.is_empty() {
+            return Err(StoreError::EnvInvalid(
+                "an item without provenance has no arrival story (IX.2)".into(),
+            ));
+        }
+        // Collect (link_seq, kind) so the human-root check keys on the
+        // actual root — the minimum link_seq — not array position, which
+        // an out-of-order chain could otherwise use to slip a non-human
+        // root past the floor.
+        let mut ordered: Vec<(i64, String)> = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let obj = entry.as_object().ok_or_else(|| {
+                StoreError::EnvInvalid("each chain entry must be an object".into())
+            })?;
+            let seq = obj
+                .get("link_seq")
+                .and_then(serde_json::Value::as_i64)
+                .ok_or_else(|| {
+                    StoreError::EnvInvalid("each chain entry needs an integer link_seq".into())
+                })?;
+            // Every entry carries an actor — the arrival's author (C.2).
+            let actor = obj.get("actor").and_then(|v| v.as_str());
+            if actor.is_none_or(str::is_empty) {
+                return Err(StoreError::EnvInvalid(
+                    "each chain entry needs a non-empty actor (C.2)".into(),
+                ));
+            }
+            let kind = obj
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| StoreError::EnvInvalid("each chain entry needs a kind".into()))?
+                .to_string();
+            // Every produced ref resolves to a live record.
+            if let Some(produced) = obj.get("produced").and_then(|v| v.as_array()) {
+                for reference in produced {
+                    let id = reference
+                        .as_str()
+                        .and_then(|s| Uuid::parse_str(s).ok())
+                        .ok_or_else(|| {
+                            StoreError::EnvInvalid("a produced ref is not a uuid".into())
+                        })?;
+                    let resolves: bool = sqlx::query_scalar(
+                        r#"SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = $1)
+                            OR EXISTS(SELECT 1 FROM links WHERE link_id = $1)
+                            OR EXISTS(SELECT 1 FROM matrices WHERE matrix_id = $1)"#,
+                    )
+                    .bind(id)
+                    .fetch_one(&self.pool)
+                    .await?;
+                    if !resolves {
+                        return Err(StoreError::EnvInvalid(format!(
+                            "chain entry produces {id}, which resolves to no live record"
+                        )));
+                    }
+                }
+            }
+            ordered.push((seq, kind));
+        }
+        ordered.sort_by_key(|(seq, _)| *seq);
+        // The root — the entry with the least link_seq — begins in a human
+        // hand (CANON|WRIT|BRIEF).
+        let root_kind = ordered.first().expect("chain is non-empty").1.as_str();
+        if !matches!(root_kind, "CANON" | "WRIT" | "BRIEF") {
+            return Err(StoreError::EnvInvalid(format!(
+                "the chain's root is '{root_kind}'; every chain begins in a human hand (CANON|WRIT|BRIEF)"
+            )));
+        }
+        // Contiguous root-to-leaf: sorted seqs increase by exactly one.
+        for pair in ordered.windows(2) {
+            if pair[0].0 == pair[1].0 {
+                return Err(StoreError::EnvInvalid(
+                    "chain link_seq values are not distinct".into(),
+                ));
+            }
+            if pair[1].0 != pair[0].0 + 1 {
+                return Err(StoreError::EnvInvalid(
+                    "the chain does not walk root-to-leaf: a gap in link_seq".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// The node's floor bucket — the category eligibility and links hang on.
     fn primary_category(node: &NodeRecord) -> String {
         node.classification
@@ -639,6 +773,33 @@ impl Store for PgStore {
             if let Some(pattern) = secrets::scan(alias) {
                 return Err(StoreError::SecretDetected(format!(
                     "endpoint_alias matched secret pattern '{pattern}' — endpoints are referenced by alias only (Law XV.1)"
+                )));
+            }
+        }
+        // Law IX.4: a binding is not self-declared. If a job is born bound
+        // to an environment, the store authenticates the binding against
+        // store-verified relationships — the env must exist and be LIVE,
+        // its tier must match the job's tier, and its matrix must be one
+        // the job is actually working (in input_refs). An agent cannot
+        // enter a room of another tier or another matrix by naming it.
+        if let Some(env_id) = draft.env_ref {
+            let env = self.get_environment(env_id).await?;
+            if env.status != EnvStatus::Live {
+                return Err(StoreError::ValidationFailed(format!(
+                    "cannot bind to environment {env_id}: it is {} (a non-LIVE room is no workplace)",
+                    env.status
+                )));
+            }
+            if draft.tier != Some(env.tier) {
+                return Err(StoreError::ValidationFailed(format!(
+                    "cannot bind to environment {env_id}: its tier {} does not match the job's tier {:?} (Law IX.4)",
+                    env.tier, draft.tier
+                )));
+            }
+            if !draft.input_refs.contains(&env.matrix_ref) {
+                return Err(StoreError::ValidationFailed(format!(
+                    "cannot bind to environment {env_id}: its matrix {} is not among the job's inputs (Law IX.4)",
+                    env.matrix_ref
                 )));
             }
         }
@@ -3128,5 +3289,444 @@ impl Store for PgStore {
         .await?;
         tx.commit().await?;
         self.get_matrix(matrix_id).await
+    }
+
+    async fn establish_environment(
+        &self,
+        job_id: Uuid,
+        kind: EnvKind,
+        matrix_ref: Uuid,
+        tier: Tier,
+    ) -> Result<EnvironmentRecord, StoreError> {
+        let job = self
+            .guard_actor(job_id, "establish_environment", false)
+            .await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "an environment is established during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        // X.1: the unbound establish nothing; identity is earned by binding.
+        if tier == Tier::Regular {
+            return Err(StoreError::ValidationFailed(
+                "Regulars establish no environment; the unbound are unnamed (Law X.1)".into(),
+            ));
+        }
+        // The matrix must exist (the room is built around it).
+        self.get_matrix(matrix_ref).await?;
+        let env_id = Uuid::now_v7();
+
+        // Conferral (X.2, X.4): title from tier for Teachers, a flat
+        // honorific by hash for Students; name from the roster by hash.
+        let honorifics = self.get_config("honorific_set").await?;
+        let title = match kind {
+            EnvKind::Teacher => honorifics
+                .value
+                .get("teacher")
+                .and_then(|t| t.get(tier.as_str()))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    StoreError::ValidationFailed(format!(
+                        "honorific_set has no teacher title for tier {tier}"
+                    ))
+                })?
+                .to_string(),
+            EnvKind::Student => {
+                let set = honorifics
+                    .value
+                    .get("student")
+                    .and_then(|v| v.as_array())
+                    .filter(|a| !a.is_empty())
+                    .ok_or_else(|| {
+                        StoreError::ValidationFailed("honorific_set.student is empty".into())
+                    })?;
+                let idx = roster_index(env_id, set.len());
+                set[idx]
+                    .as_str()
+                    .ok_or_else(|| {
+                        StoreError::ValidationFailed(
+                            "honorific_set.student entry not a string".into(),
+                        )
+                    })?
+                    .to_string()
+            }
+        };
+        let roster_cfg = self.get_config("name_roster").await?;
+        let roster = roster_cfg
+            .value
+            .as_array()
+            .filter(|a| !a.is_empty())
+            .ok_or_else(|| StoreError::ValidationFailed("name_roster is empty".into()))?;
+        let base = roster[roster_index(env_id, roster.len())]
+            .as_str()
+            .ok_or_else(|| StoreError::ValidationFailed("name_roster entry not a string".into()))?
+            .to_string();
+        // Ordinal (X.4): a name already borne takes the next. Counted over
+        // ALL environments ever (records are never deleted — Law V.1), so
+        // an ordinal is never reused even after a lower bearer orphans;
+        // and matched by exact base or "base <ordinal>" with a space
+        // delimiter, so a base that prefixes another name (Solo vs
+        // Solomon) never over-counts. A living collision therefore always
+        // yields ≥ 2 (X.4's letter); an all-archived base still advances,
+        // which is the safer reading (no name reuse).
+        let bearers: i64 = sqlx::query_scalar(
+            r#"SELECT count(*) FROM environments
+               WHERE name = $1 OR name LIKE $2"#,
+        )
+        .bind(&base)
+        .bind(format!("{base} %"))
+        .fetch_one(&self.pool)
+        .await?;
+        let ordinal = roman_ordinal(u32::try_from(bearers + 1).unwrap_or(1));
+        let name = if ordinal.is_empty() {
+            base
+        } else {
+            format!("{base} {ordinal}")
+        };
+
+        let row = sqlx::query(
+            r#"INSERT INTO environments
+                 (env_id, kind, matrix_ref, tier, title, name, established_by,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'EnvironmentRecord', $8, $7::text)
+               RETURNING *"#,
+        )
+        .bind(env_id)
+        .bind(kind.as_str())
+        .bind(matrix_ref)
+        .bind(tier.as_str())
+        .bind(&title)
+        .bind(&name)
+        .bind(job_id)
+        .bind(RECORD_SCHEMA_VERSION)
+        .fetch_one(&self.pool)
+        .await?;
+        self.append_log(
+            &env_id.to_string(),
+            LogEvent::EnvEstablished,
+            &serde_json::json!({
+                "kind": kind.as_str(),
+                "tier": tier.as_str(),
+                "title": title,
+                "name": name,
+                "matrix": matrix_ref.to_string(),
+            }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Self::environment_from_row(&row)
+    }
+
+    async fn get_environment(&self, env_id: Uuid) -> Result<EnvironmentRecord, StoreError> {
+        let row = sqlx::query("SELECT * FROM environments WHERE env_id = $1")
+            .bind(env_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such environment {env_id}")))?;
+        Self::environment_from_row(&row)
+    }
+
+    async fn add_env_item(
+        &self,
+        job_id: Uuid,
+        env_id: Uuid,
+        item_ref: Uuid,
+        provenance: &serde_json::Value,
+        flagged: bool,
+    ) -> Result<EnvItem, StoreError> {
+        self.guard_actor(job_id, "add_env_item", false).await?;
+        let env = self.get_environment(env_id).await?;
+        // SC-G07: an ORPHANED/DISSOLVED room is not a workplace.
+        if env.status != EnvStatus::Live {
+            return Err(StoreError::ValidationFailed(format!(
+                "environment {env_id} is {}; a non-LIVE room is a read-only archive (A.8)",
+                env.status
+            )));
+        }
+        let row = sqlx::query(
+            r#"INSERT INTO environment_items
+                 (env_id, item_ref, provenance, flagged,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, 'EnvItem', $5, $6::text)
+               ON CONFLICT (env_id, item_ref) DO UPDATE
+               SET provenance = EXCLUDED.provenance, flagged = EXCLUDED.flagged
+               RETURNING *"#,
+        )
+        .bind(env_id)
+        .bind(item_ref)
+        .bind(provenance)
+        .bind(flagged)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Self::env_item_from_row(&row)
+    }
+
+    async fn env_items(&self, env_id: Uuid) -> Result<Vec<EnvItem>, StoreError> {
+        let rows =
+            sqlx::query("SELECT * FROM environment_items WHERE env_id = $1 ORDER BY produced_at")
+                .bind(env_id)
+                .fetch_all(&self.pool)
+                .await?;
+        rows.iter().map(Self::env_item_from_row).collect()
+    }
+
+    async fn mount_environment(
+        &self,
+        job_id: Uuid,
+        env_id: Uuid,
+    ) -> Result<EnvironmentRecord, StoreError> {
+        self.guard_actor(job_id, "mount_environment", false).await?;
+        let env = self.get_environment(env_id).await?;
+        // SC-G07: ORPHANED/DISSOLVED are unmountable for work.
+        if env.status != EnvStatus::Live {
+            return Err(StoreError::EnvInvalid(format!(
+                "environment {env_id} is {}; a non-LIVE room is not mountable for work (A.8)",
+                env.status
+            )));
+        }
+        // SC-G05: tier and title must agree (X.2). Teacher titles track the
+        // specificity axis; a Student bears a flat honorific.
+        let honorifics = self.get_config("honorific_set").await?;
+        match env.kind {
+            EnvKind::Teacher => {
+                let expected = honorifics
+                    .value
+                    .get("teacher")
+                    .and_then(|t| t.get(env.tier.as_str()))
+                    .and_then(|v| v.as_str());
+                if expected != Some(env.title.as_str()) {
+                    return Err(StoreError::EnvInvalid(format!(
+                        "Teacher environment tier {} and title '{}' disagree (Law X.2)",
+                        env.tier, env.title
+                    )));
+                }
+            }
+            EnvKind::Student => {
+                let set = honorifics.value.get("student").and_then(|v| v.as_array());
+                let ok = set.is_some_and(|a| a.iter().any(|h| h.as_str() == Some(&env.title)));
+                if !ok {
+                    return Err(StoreError::EnvInvalid(format!(
+                        "Student environment honorific '{}' is not in the flat set (Law X.3)",
+                        env.title
+                    )));
+                }
+            }
+        }
+        // SC-G01/G06: every item resolves and its chain walks root-to-leaf.
+        for item in self.env_items(env_id).await? {
+            let resolves: bool = sqlx::query_scalar(
+                r#"SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = $1)
+                    OR EXISTS(SELECT 1 FROM links WHERE link_id = $1)
+                    OR EXISTS(SELECT 1 FROM artifacts WHERE job_id = $1)"#,
+            )
+            .bind(item.item_ref)
+            .fetch_one(&self.pool)
+            .await?;
+            if !resolves {
+                return Err(StoreError::EnvInvalid(format!(
+                    "environment {env_id}: item {} resolves to no live record (IX.2)",
+                    item.item_ref
+                )));
+            }
+            self.validate_provenance_chain(&item.provenance).await?;
+        }
+        Ok(env)
+    }
+
+    async fn env_scoped_read(
+        &self,
+        reader_job_id: Uuid,
+        env_id: Uuid,
+        target_ref: Uuid,
+    ) -> Result<(), StoreError> {
+        let reader = self
+            .guard_actor(reader_job_id, "env_scoped_read", false)
+            .await?;
+        // The reader must actually be bound to the room it claims: env_id
+        // is not the caller's to assert — the job's env_ref is (IX.4). An
+        // agent cannot borrow another environment's scope by naming it.
+        if reader.env_ref != Some(env_id) {
+            self.append_log(
+                &env_id.to_string(),
+                LogEvent::Violation,
+                &serde_json::json!({
+                    "operation": "env_scoped_read",
+                    "reader": reader_job_id.to_string(),
+                    "claimed_env": env_id.to_string(),
+                    "actual_env": reader.env_ref.map(|e| e.to_string()),
+                    "not_bound": true,
+                }),
+                Severity::Violation,
+                "store",
+            )
+            .await?;
+            return Err(StoreError::Forbidden(format!(
+                "job {reader_job_id} is not bound to environment {env_id}; it may not read its scope (Law IX.4)"
+            )));
+        }
+        // In the reader's own contents index → permitted (IX.4).
+        let in_index: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM environment_items WHERE env_id = $1 AND item_ref = $2)",
+        )
+        .bind(env_id)
+        .bind(target_ref)
+        .fetch_one(&self.pool)
+        .await?;
+        if in_index {
+            return Ok(());
+        }
+        // The global allowlist: the reader's own job or its own leases.
+        if target_ref == reader_job_id {
+            return Ok(());
+        }
+        let own_lease: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM lease_records WHERE lease_id = $1 AND job_id = $2)",
+        )
+        .bind(target_ref)
+        .bind(reader_job_id)
+        .fetch_one(&self.pool)
+        .await?;
+        if own_lease {
+            return Ok(());
+        }
+        // The Pairing Exception (IX.5): a flagged item of a paired
+        // counterpart environment, and nothing else of it.
+        let paired_flagged: bool = sqlx::query_scalar(
+            r#"SELECT EXISTS(
+                 SELECT 1 FROM pairings p
+                 JOIN environment_items ei ON ei.item_ref = $2 AND ei.flagged
+                 WHERE ((p.teacher_env_ref = $1 AND p.student_env_ref = ei.env_id)
+                     OR (p.student_env_ref = $1 AND p.teacher_env_ref = ei.env_id)))"#,
+        )
+        .bind(env_id)
+        .bind(target_ref)
+        .fetch_one(&self.pool)
+        .await?;
+        if paired_flagged {
+            return Ok(());
+        }
+        // Out of scope: the wall agents hit (IX.4). Logged, then refused.
+        self.append_log(
+            &env_id.to_string(),
+            LogEvent::Violation,
+            &serde_json::json!({
+                "operation": "env_scoped_read",
+                "reader": reader_job_id.to_string(),
+                "target": target_ref.to_string(),
+                "out_of_scope": true,
+            }),
+            Severity::Violation,
+            "store",
+        )
+        .await?;
+        Err(StoreError::Forbidden(format!(
+            "read of {target_ref} is outside environment {env_id}'s scope (Law IX.4)"
+        )))
+    }
+
+    async fn form_pairing(
+        &self,
+        teacher_env_ref: Uuid,
+        student_env_ref: Uuid,
+        matrix_ref: Uuid,
+        kind: PairingKind,
+    ) -> Result<PairingRecord, StoreError> {
+        let teacher = self.get_environment(teacher_env_ref).await?;
+        let student = self.get_environment(student_env_ref).await?;
+        if teacher.kind != EnvKind::Teacher || student.kind != EnvKind::Student {
+            return Err(StoreError::ValidationFailed(
+                "a pairing binds one Teacher environment and one Student environment (X.5)".into(),
+            ));
+        }
+        // Both rooms must be live workplaces — an archive does not pair,
+        // and the Exception must never serve a dissolved room's artifacts.
+        if teacher.status != EnvStatus::Live || student.status != EnvStatus::Live {
+            return Err(StoreError::ValidationFailed(
+                "a pairing binds two LIVE environments; an archive does not pair (A.8, IX.5)"
+                    .into(),
+            ));
+        }
+        // IX.5: the Exception is scoped to the SHARED matrix — both rooms
+        // and the pairing must name the same one (X.5: they occupy the
+        // same node).
+        if teacher.matrix_ref != student.matrix_ref || teacher.matrix_ref != matrix_ref {
+            return Err(StoreError::ValidationFailed(format!(
+                "a pairing binds two rooms over one shared matrix; got teacher {}, student {}, pairing {matrix_ref} (Law X.5, IX.5)",
+                teacher.matrix_ref, student.matrix_ref
+            )));
+        }
+        // X.5: tiers must match the pairing kind; REGULAR never pairs (and
+        // cannot reach here — no REGULAR environment exists).
+        let required = match kind {
+            PairingKind::DevoutAssignment => Tier::Devout,
+            PairingKind::CanonicalInstruction => Tier::Canon,
+        };
+        if teacher.tier != required || student.tier != required {
+            return Err(StoreError::ValidationFailed(format!(
+                "{kind} pairs {required} with {required}; got teacher {} and student {} (Law X.5)",
+                teacher.tier, student.tier
+            )));
+        }
+        let row = sqlx::query(
+            r#"INSERT INTO pairings
+                 (pairing_id, kind, teacher_env_ref, student_env_ref, matrix_ref,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, 'PairingRecord', $6, 'sovereign')
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(kind.as_str())
+        .bind(teacher_env_ref)
+        .bind(student_env_ref)
+        .bind(matrix_ref)
+        .bind(RECORD_SCHEMA_VERSION)
+        .fetch_one(&self.pool)
+        .await?;
+        self.append_log(
+            &matrix_ref.to_string(),
+            LogEvent::PairingFormed,
+            &serde_json::json!({
+                "kind": kind.as_str(),
+                "teacher_env": teacher_env_ref.to_string(),
+                "student_env": student_env_ref.to_string(),
+            }),
+            Severity::Info,
+            "sovereign",
+        )
+        .await?;
+        Self::pairing_from_row(&row)
+    }
+
+    async fn orphan_environment(&self, env_id: Uuid) -> Result<EnvironmentRecord, StoreError> {
+        let env = self.get_environment(env_id).await?;
+        if env.status == EnvStatus::Dissolved {
+            return Err(StoreError::ValidationFailed(
+                "a dissolved environment does not orphan; it is already gone (A.8)".into(),
+            ));
+        }
+        let row = sqlx::query(
+            r#"UPDATE environments SET status = 'ORPHANED', revision = revision + 1
+               WHERE env_id = $1 AND status = 'LIVE' RETURNING *"#,
+        )
+        .bind(env_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let record = match row {
+            Some(row) => Self::environment_from_row(&row)?,
+            None => return self.get_environment(env_id).await, // already orphaned
+        };
+        self.append_log(
+            &env_id.to_string(),
+            LogEvent::EnvOrphaned,
+            &serde_json::json!({ "prior_status": "LIVE" }),
+            Severity::Warning,
+            "store",
+        )
+        .await?;
+        Ok(record)
     }
 }

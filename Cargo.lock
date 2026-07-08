@@ -468,6 +468,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "godhead-scriptorium"
+version = "0.1.0"
+dependencies = [
+ "godhead-intake",
+ "godhead-ml",
+ "godhead-schemas",
+ "godhead-store",
+ "semver",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "godhead-store"
 version = "0.1.0"
 dependencies = [
