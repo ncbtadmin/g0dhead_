@@ -18,6 +18,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "async-trait"
+version = "0.1.89"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -397,6 +408,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "godhead-ml"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "godhead-intake",
+ "godhead-schemas",
+ "godhead-store",
+ "semver",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "godhead-notary"
 version = "0.1.0"
 dependencies = [
@@ -428,6 +455,7 @@ name = "godhead-store"
 version = "0.1.0"
 dependencies = [
  "godhead-schemas",
+ "pgvector",
  "regex",
  "semver",
  "serde",
@@ -825,6 +853,15 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "pgvector"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3673cba5b9a124916096a423b806a9f29620972c6c97b08db5f2053e9428b481"
+dependencies = [
+ "sqlx",
+]
 
 [[package]]
 name = "pin-project-lite"

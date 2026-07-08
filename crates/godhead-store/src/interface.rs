@@ -1,10 +1,10 @@
 use crate::error::StoreError;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
-    ConfigConstant, ConfigTier, ConsentDecision, FlagDraft, FlagStatus, JobDraft, JobRecord,
-    JobStatus, LeaseRecord, LogEvent, LogSnapshot, NodeDraft, NodeRecord, NormalizeOutcome,
-    OverrideRecord, PetitionDraft, PetitionRecord, ReadinessFlag, RefusalDraft, RefusalRecord,
-    Severity,
+    ConfigConstant, ConfigTier, ConsentDecision, EmbeddingRecord, FlagDraft, FlagStatus, JobDraft,
+    JobRecord, JobStatus, LeaseRecord, LinkRecord, LiveWeights, LogEvent, LogSnapshot, NodeDraft,
+    NodeRecord, NormalizeOutcome, OverrideRecord, PetitionDraft, PetitionRecord, ReadinessFlag,
+    RebalanceState, RefusalDraft, RefusalRecord, Severity,
 };
 use uuid::Uuid;
 
@@ -260,4 +260,99 @@ pub trait Store {
     async fn stalled_grants(&self, stall_ms: i64) -> Result<Vec<PetitionRecord>, StoreError>;
 
     async fn get_petition(&self, petition_id: Uuid) -> Result<PetitionRecord, StoreError>;
+
+    // -- embeddings & links (doc 3 §2.2–2.3; doc 4) --
+
+    /// Persists a node's vector. Converges on conflict (the existing row is
+    /// returned untouched — one embedding per node, doc 3 §2.2), logs
+    /// EMBEDDED, and marks the node's category recalculation-eligible
+    /// (ingestion event, doc 4 §5.2).
+    async fn put_embedding(
+        &self,
+        job_id: Uuid,
+        node_id: Uuid,
+        embedder_alias: &str,
+        vector: &[f32],
+    ) -> Result<EmbeddingRecord, StoreError>;
+
+    async fn get_embedding(&self, node_id: Uuid) -> Result<Option<EmbeddingRecord>, StoreError>;
+
+    /// Normalized nodes with no persisted vector — the "flagged for
+    /// backfill" surface (SC-M06). Scope limits to a node set.
+    async fn embedding_backlog(
+        &self,
+        scope: Option<&[Uuid]>,
+    ) -> Result<Vec<NodeRecord>, StoreError>;
+
+    /// Native pgvector cosine similarity against a node's stored vector,
+    /// most similar first, at or above `min_similarity`.
+    async fn similar_nodes(
+        &self,
+        node_id: Uuid,
+        min_similarity: f32,
+        scope: Option<&[Uuid]>,
+    ) -> Result<Vec<(Uuid, f32)>, StoreError>;
+
+    /// Draws (or refreshes) the bond between two nodes in canonical order.
+    /// An overridden link is never touched (doc 4 §4.4). Logs LINK_DRAWN on
+    /// creation and marks the category eligible.
+    async fn draw_link(
+        &self,
+        job_id: Uuid,
+        a: Uuid,
+        b: Uuid,
+        similarity: f32,
+        category: &str,
+    ) -> Result<LinkRecord, StoreError>;
+
+    async fn links_by_category(
+        &self,
+        category: &str,
+        scope: Option<&[Uuid]>,
+    ) -> Result<Vec<LinkRecord>, StoreError>;
+
+    /// CAS weight write; an overridden link refuses OVERRIDE_CONFLICT —
+    /// recalculation works around fixed stars (Handbook §4.5).
+    async fn set_link_weight(
+        &self,
+        job_id: Uuid,
+        link_id: Uuid,
+        expected_revision: i32,
+        weight: f32,
+    ) -> Result<LinkRecord, StoreError>;
+
+    /// The consumer weight surface (SC-M02): evaluates category link-density
+    /// against the sovereign coherence_threshold, citing the config revision
+    /// read (Law VI.1 — no threshold set is a refusal, never a guess).
+    /// Below the line, weights are inert: present in records, absent here.
+    async fn live_weights(
+        &self,
+        category: &str,
+        scope: Option<&[Uuid]>,
+    ) -> Result<LiveWeights, StoreError>;
+
+    async fn rebalance_state(&self, category: &str) -> Result<Option<RebalanceState>, StoreError>;
+
+    /// Atomically claims a category's pending eligibility: sets
+    /// eligible=false and stamps last_recalc_at iff it was eligible,
+    /// returning whether the claim won. This is the tick's
+    /// check-and-act in one statement — N racing executors, one claim.
+    /// `config_rev` cites the sovereign threshold revision the execution
+    /// runs under, or None when the sovereign has never set one (a null
+    /// citation, never a fabricated revision — Law VI.1).
+    async fn claim_rebalance_eligibility(
+        &self,
+        category: &str,
+        config_rev: Option<i32>,
+    ) -> Result<bool, StoreError>;
+
+    /// Marks a category recalculation-eligible. The store calls this
+    /// itself on ingestion events (doc 4 §5.2); the public surface exists
+    /// so an executor whose claimed pass failed can restore the mark it
+    /// consumed — eligibility is never lost to a failed labor.
+    async fn mark_rebalance_eligible(&self, category: &str) -> Result<(), StoreError>;
+
+    /// The store's clock (Law XII: the only clock any elapsed-time
+    /// judgment may consult).
+    async fn store_now(&self) -> Result<time::OffsetDateTime, StoreError>;
 }

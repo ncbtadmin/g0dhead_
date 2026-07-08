@@ -17,6 +17,16 @@ async fn main() {
                 .await
                 .expect("query");
             println!("CONNECTED: {version}");
+            let pgvector: Option<String> = sqlx::query_scalar(
+                "SELECT default_version FROM pg_available_extensions WHERE name = 'vector'",
+            )
+            .fetch_optional(&pool)
+            .await
+            .expect("extension query");
+            match pgvector {
+                Some(v) => println!("PGVECTOR: available, version {v}"),
+                None => println!("PGVECTOR: NOT available on this server"),
+            }
         }
         Err(e) => println!("FAILED: {e}"),
     }

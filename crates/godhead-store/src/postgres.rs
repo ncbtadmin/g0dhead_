@@ -4,11 +4,11 @@ use crate::secrets;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
     AgentType, AuditorName, Budgets, ConfigConstant, ConfigTier, ConsentDecision, ConsentRecord,
-    ConsentScope, Envelope, FlagDraft, FlagStatus, IntakeStatus, JobDraft, JobRecord, JobStatus,
-    Law, LeaseRecord, LogEvent, LogSnapshot, NodeDraft, NodeRecord, NormalizeOutcome,
-    OverrideBasis, OverrideKind, OverrideRecord, PetitionDraft, PetitionRecord, PetitionStatus,
-    ReadinessFlag, RefusalDraft, RefusalReason, RefusalRecord, SchemaRegistry, Severity, Tier,
-    RECORD_SCHEMA_VERSION,
+    ConsentScope, EmbeddingRecord, Envelope, FlagDraft, FlagStatus, IntakeStatus, JobDraft,
+    JobRecord, JobStatus, Law, LeaseRecord, LinkRecord, LiveWeights, LogEvent, LogSnapshot,
+    NodeDraft, NodeRecord, NormalizeOutcome, OverrideBasis, OverrideKind, OverrideRecord,
+    PetitionDraft, PetitionRecord, PetitionStatus, ReadinessFlag, RebalanceState, RefusalDraft,
+    RefusalReason, RefusalRecord, SchemaRegistry, Severity, Tier, RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -261,6 +261,72 @@ impl PgStore {
             .await?
             .ok_or_else(|| StoreError::NotFound(format!("no such consent {consent_id}")))?;
         Self::consent_from_row(&row)
+    }
+
+    fn embedding_from_row(row: &PgRow) -> Result<EmbeddingRecord, StoreError> {
+        let vector: pgvector::Vector = row.try_get("embedding")?;
+        Ok(EmbeddingRecord {
+            node_id: row.try_get("node_id")?,
+            vector: vector.to_vec(),
+            embedder_alias: row.try_get("embedder_alias")?,
+            dims: row.try_get("dims")?,
+            revision: row.try_get("revision")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn link_from_row(row: &PgRow) -> Result<LinkRecord, StoreError> {
+        Ok(LinkRecord {
+            link_id: row.try_get("link_id")?,
+            source_ref: row.try_get("source_ref")?,
+            target_ref: row.try_get("target_ref")?,
+            similarity: row.try_get("similarity")?,
+            weight: row.try_get("weight")?,
+            category: row.try_get("category")?,
+            user_overridden: row.try_get("user_overridden")?,
+            revision: row.try_get("revision")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn rebalance_from_row(row: &PgRow) -> Result<RebalanceState, StoreError> {
+        Ok(RebalanceState {
+            category: row.try_get("category")?,
+            eligible: row.try_get("eligible")?,
+            marked_at: row.try_get("marked_at")?,
+            last_recalc_at: row.try_get("last_recalc_at")?,
+            config_rev: row.try_get("config_rev")?,
+            revision: row.try_get("revision")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    /// The node's floor bucket — the category eligibility and links hang on.
+    fn primary_category(node: &NodeRecord) -> String {
+        node.classification
+            .get(0)
+            .and_then(|entry| entry.get("category"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unclassified")
+            .to_string()
+    }
+
+    /// Doc 4 §5.2: an ingestion event makes recalculation eligible — and
+    /// nothing more. Execution belongs to the user's trigger.
+    async fn mark_rebalance_eligible(&self, category: &str) -> Result<(), StoreError> {
+        sqlx::query(
+            r#"INSERT INTO rebalance_state
+                 (category, eligible, marked_at, schema_name, schema_version, produced_by)
+               VALUES ($1, true, now(), 'RebalanceState', $2, 'store')
+               ON CONFLICT (category) DO UPDATE
+               SET eligible = true, marked_at = now(),
+                   revision = rebalance_state.revision + 1"#,
+        )
+        .bind(category)
+        .bind(RECORD_SCHEMA_VERSION)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     fn config_from_row(row: &PgRow) -> Result<ConfigConstant, StoreError> {
@@ -1724,5 +1790,369 @@ impl Store for PgStore {
             .await?
             .ok_or_else(|| StoreError::NotFound(format!("no such petition {petition_id}")))?;
         Self::petition_from_row(&row)
+    }
+
+    async fn put_embedding(
+        &self,
+        job_id: Uuid,
+        node_id: Uuid,
+        embedder_alias: &str,
+        vector: &[f32],
+    ) -> Result<EmbeddingRecord, StoreError> {
+        let job = self.guard_actor(job_id, "put_embedding", false).await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "embeddings are persisted during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if vector.len() != 256 {
+            return Err(StoreError::ValidationFailed(format!(
+                "embedding must be 256-dimensional, got {}",
+                vector.len()
+            )));
+        }
+        let node = self.get_node(node_id).await?;
+        // One transaction: vector + log + eligibility mark land together or
+        // not at all. A crash cannot consume the retry key (the embedding's
+        // existence) while losing the ingestion's eligibility side effect.
+        let mut tx = self.pool.begin().await?;
+        let inserted = sqlx::query(
+            r#"INSERT INTO embeddings
+                 (node_id, embedding, embedder_alias, dims,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, 256, 'EmbeddingRecord', $4, $5::text)
+               ON CONFLICT (node_id) DO NOTHING
+               RETURNING *"#,
+        )
+        .bind(node_id)
+        .bind(pgvector::Vector::from(vector.to_vec()))
+        .bind(embedder_alias)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        match inserted {
+            Some(row) => {
+                let subject = node_id.to_string();
+                sqlx::query(
+                    r#"INSERT INTO log_snapshots
+                         (log_id, subject_ref, event, payload, prior_ref, severity,
+                          schema_name, schema_version, produced_by)
+                       VALUES ($1, $2, 'EMBEDDED', $3,
+                         (SELECT log_id FROM log_snapshots WHERE subject_ref = $2
+                          ORDER BY seq DESC LIMIT 1),
+                         'info', 'LogSnapshot', $4, $5::text)"#,
+                )
+                .bind(Uuid::now_v7())
+                .bind(&subject)
+                .bind(serde_json::json!({ "embedder_alias": embedder_alias, "dims": 256 }))
+                .bind(RECORD_SCHEMA_VERSION)
+                .bind(job_id)
+                .execute(&mut *tx)
+                .await?;
+                // Ingestion event: recalculation becomes eligible (doc 4 §5.2).
+                sqlx::query(
+                    r#"INSERT INTO rebalance_state
+                         (category, eligible, marked_at, schema_name, schema_version, produced_by)
+                       VALUES ($1, true, now(), 'RebalanceState', $2, 'store')
+                       ON CONFLICT (category) DO UPDATE
+                       SET eligible = true, marked_at = now(),
+                           revision = rebalance_state.revision + 1"#,
+                )
+                .bind(Self::primary_category(&node))
+                .bind(RECORD_SCHEMA_VERSION)
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await?;
+                Self::embedding_from_row(&row)
+            }
+            // One vector per node: the existing row wins, untouched.
+            None => {
+                tx.rollback().await?;
+                self.get_embedding(node_id).await?.ok_or_else(|| {
+                    StoreError::NotFound(format!("embedding vanished for {node_id}"))
+                })
+            }
+        }
+    }
+
+    async fn get_embedding(&self, node_id: Uuid) -> Result<Option<EmbeddingRecord>, StoreError> {
+        let row = sqlx::query("SELECT * FROM embeddings WHERE node_id = $1")
+            .bind(node_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(Self::embedding_from_row).transpose()
+    }
+
+    async fn embedding_backlog(
+        &self,
+        scope: Option<&[Uuid]>,
+    ) -> Result<Vec<NodeRecord>, StoreError> {
+        let rows = sqlx::query(
+            r#"SELECT n.* FROM nodes n
+               LEFT JOIN embeddings e ON e.node_id = n.node_id
+               WHERE n.normalized AND e.node_id IS NULL
+                 AND ($1::uuid[] IS NULL OR n.node_id = ANY($1))
+               ORDER BY n.produced_at"#,
+        )
+        .bind(scope.map(<[Uuid]>::to_vec))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(Self::node_from_row).collect()
+    }
+
+    async fn similar_nodes(
+        &self,
+        node_id: Uuid,
+        min_similarity: f32,
+        scope: Option<&[Uuid]>,
+    ) -> Result<Vec<(Uuid, f32)>, StoreError> {
+        let rows = sqlx::query(
+            r#"SELECT e2.node_id, (1 - (e2.embedding <=> e1.embedding))::float4 AS sim
+               FROM embeddings e1
+               JOIN embeddings e2 ON e2.node_id <> e1.node_id
+               WHERE e1.node_id = $1
+                 AND ($3::uuid[] IS NULL OR e2.node_id = ANY($3))
+                 AND (1 - (e2.embedding <=> e1.embedding)) >= $2
+               ORDER BY e2.embedding <=> e1.embedding"#,
+        )
+        .bind(node_id)
+        .bind(f64::from(min_similarity))
+        .bind(scope.map(<[Uuid]>::to_vec))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| Ok((row.try_get("node_id")?, row.try_get("sim")?)))
+            .collect()
+    }
+
+    async fn draw_link(
+        &self,
+        job_id: Uuid,
+        a: Uuid,
+        b: Uuid,
+        similarity: f32,
+        category: &str,
+    ) -> Result<LinkRecord, StoreError> {
+        let job = self.guard_actor(job_id, "draw_link", false).await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "links are drawn during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if a == b {
+            return Err(StoreError::ValidationFailed(
+                "a node does not bond with itself".into(),
+            ));
+        }
+        // Note: drawing a link marks NO rebalance eligibility. Eligibility
+        // marks on *ingestion* events (doc 4 §5.2); link consolidation is
+        // the recalculation itself, not an ingestion.
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        // Race-proof creation: ON CONFLICT arbitrates two concurrent
+        // first-draws of the same pair; the loser falls to the update path.
+        let inserted = sqlx::query(
+            r#"INSERT INTO links
+                 (link_id, source_ref, target_ref, similarity, category,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, 'LinkRecord', $6, $7::text)
+               ON CONFLICT (source_ref, target_ref) DO NOTHING
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(lo)
+        .bind(hi)
+        .bind(similarity)
+        .bind(category)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(row) = inserted {
+            self.append_log(
+                &lo.to_string(),
+                LogEvent::LinkDrawn,
+                &serde_json::json!({
+                    "target": hi.to_string(),
+                    "similarity": similarity,
+                    "category": category,
+                }),
+                Severity::Info,
+                &job_id.to_string(),
+            )
+            .await?;
+            return Self::link_from_row(&row);
+        }
+        // The pair exists: refresh similarity in place. The single-statement
+        // guard on user_overridden means a human hand laid mid-race is never
+        // reverted (doc 4 §4.4); zero rows updated ⇒ overridden ⇒ return it
+        // untouched.
+        let row = sqlx::query(
+            r#"UPDATE links SET similarity = $3, revision = revision + 1
+               WHERE source_ref = $1 AND target_ref = $2 AND NOT user_overridden
+               RETURNING *"#,
+        )
+        .bind(lo)
+        .bind(hi)
+        .bind(similarity)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some(row) => Self::link_from_row(&row),
+            None => {
+                let row =
+                    sqlx::query("SELECT * FROM links WHERE source_ref = $1 AND target_ref = $2")
+                        .bind(lo)
+                        .bind(hi)
+                        .fetch_optional(&self.pool)
+                        .await?
+                        .ok_or_else(|| {
+                            StoreError::NotFound(format!("link {lo}<->{hi} vanished mid-draw"))
+                        })?;
+                Self::link_from_row(&row)
+            }
+        }
+    }
+
+    async fn links_by_category(
+        &self,
+        category: &str,
+        scope: Option<&[Uuid]>,
+    ) -> Result<Vec<LinkRecord>, StoreError> {
+        let rows = sqlx::query(
+            r#"SELECT * FROM links WHERE category = $1
+                 AND ($2::uuid[] IS NULL OR (source_ref = ANY($2) AND target_ref = ANY($2)))
+               ORDER BY produced_at"#,
+        )
+        .bind(category)
+        .bind(scope.map(<[Uuid]>::to_vec))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(Self::link_from_row).collect()
+    }
+
+    async fn set_link_weight(
+        &self,
+        job_id: Uuid,
+        link_id: Uuid,
+        expected_revision: i32,
+        weight: f32,
+    ) -> Result<LinkRecord, StoreError> {
+        self.guard_actor(job_id, "set_link_weight", false).await?;
+        let row = sqlx::query(
+            r#"UPDATE links SET weight = $3, revision = revision + 1
+               WHERE link_id = $1 AND revision = $2 AND NOT user_overridden
+               RETURNING *"#,
+        )
+        .bind(link_id)
+        .bind(expected_revision)
+        .bind(weight)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some(row) => Self::link_from_row(&row),
+            None => {
+                let current = sqlx::query("SELECT * FROM links WHERE link_id = $1")
+                    .bind(link_id)
+                    .fetch_optional(&self.pool)
+                    .await?
+                    .ok_or_else(|| StoreError::NotFound(format!("no such link {link_id}")))?;
+                let link = Self::link_from_row(&current)?;
+                if link.user_overridden {
+                    return Err(StoreError::OverrideConflict(format!(
+                        "link {link_id} is human-held; recalculation works around fixed stars (Handbook §4.5)"
+                    )));
+                }
+                Err(StoreError::StaleRevision {
+                    expected: expected_revision,
+                    subject: format!("link:{link_id}"),
+                })
+            }
+        }
+    }
+
+    async fn live_weights(
+        &self,
+        category: &str,
+        scope: Option<&[Uuid]>,
+    ) -> Result<LiveWeights, StoreError> {
+        // Law VI.1: a density evaluation lacking config citation is invalid;
+        // an unset sovereign threshold is a refusal, never a guess.
+        let threshold = self.get_config("coherence_threshold").await.map_err(|_| {
+            StoreError::ValidationFailed(
+                "coherence_threshold is not set; a density evaluation must cite the sovereign constant (Law VI.1)"
+                    .into(),
+            )
+        })?;
+        let threshold_value = threshold.value.as_f64().ok_or_else(|| {
+            StoreError::ValidationFailed("coherence_threshold must be numeric".into())
+        })?;
+        let links = self.links_by_category(category, scope).await?;
+        let mut nodes = std::collections::HashSet::new();
+        for link in &links {
+            nodes.insert(link.source_ref);
+            nodes.insert(link.target_ref);
+        }
+        #[allow(clippy::cast_precision_loss)] // link/node counts are tiny vs f32 range
+        let density = if nodes.is_empty() {
+            0.0
+        } else {
+            links.len() as f32 / nodes.len() as f32
+        };
+        let live = f64::from(density) >= threshold_value;
+        Ok(LiveWeights {
+            category: category.to_string(),
+            live,
+            density,
+            config_rev: threshold.revision,
+            // Below the threshold, weights are inert: no force in any consumer.
+            weights: if live {
+                links.iter().map(|l| (l.link_id, l.weight)).collect()
+            } else {
+                Vec::new()
+            },
+        })
+    }
+
+    async fn rebalance_state(&self, category: &str) -> Result<Option<RebalanceState>, StoreError> {
+        let row = sqlx::query("SELECT * FROM rebalance_state WHERE category = $1")
+            .bind(category)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(Self::rebalance_from_row).transpose()
+    }
+
+    async fn claim_rebalance_eligibility(
+        &self,
+        category: &str,
+        config_rev: Option<i32>,
+    ) -> Result<bool, StoreError> {
+        // Atomic check-and-claim: the `AND eligible` predicate is the
+        // arbiter — N racing executors, exactly one claim. Marks laid by
+        // concurrent ingestions after this statement survive untouched
+        // (nothing clears post-pass), so no ingestion event is ever lost.
+        let result = sqlx::query(
+            r#"UPDATE rebalance_state
+               SET eligible = false, last_recalc_at = now(), config_rev = $2,
+                   revision = revision + 1
+               WHERE category = $1 AND eligible"#,
+        )
+        .bind(category)
+        .bind(config_rev)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn mark_rebalance_eligible(&self, category: &str) -> Result<(), StoreError> {
+        PgStore::mark_rebalance_eligible(self, category).await
+    }
+
+    async fn store_now(&self) -> Result<time::OffsetDateTime, StoreError> {
+        Ok(sqlx::query_scalar("SELECT now()")
+            .fetch_one(&self.pool)
+            .await?)
     }
 }

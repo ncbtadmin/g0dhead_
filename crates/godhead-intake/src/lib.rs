@@ -48,6 +48,12 @@ pub enum IntakeError {
 /// The intake build's declared schema support (Law II.4).
 pub fn registry() -> SchemaRegistry {
     let mut reg = SchemaRegistry::new();
+    register_into(&mut reg);
+    reg
+}
+
+/// Adds the intake schemas to a build registry (composition surface).
+pub fn register_into(reg: &mut SchemaRegistry) {
     reg.register(
         STAGE_RESULT_SCHEMA,
         VersionReq::parse("^1.0").expect("valid req"),
@@ -67,7 +73,6 @@ pub fn registry() -> SchemaRegistry {
             Ok(())
         },
     );
-    reg
 }
 
 /// SHA-256 as lowercase hex — the checksum of record throughout intake.
