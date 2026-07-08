@@ -1,10 +1,11 @@
 use crate::error::StoreError;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
-    ConfigConstant, ConfigTier, ConsentDecision, EmbeddingRecord, FlagDraft, FlagStatus, JobDraft,
-    JobRecord, JobStatus, LeaseRecord, LinkRecord, LiveWeights, LogEvent, LogSnapshot, NodeDraft,
-    NodeRecord, NormalizeOutcome, OverrideRecord, PetitionDraft, PetitionRecord, ReadinessFlag,
-    RebalanceState, RefusalDraft, RefusalRecord, Severity,
+    AuditReport, AuditReportDraft, ConfigConstant, ConfigTier, ConsentDecision, EmbeddingRecord,
+    FlagDraft, FlagStatus, JobDraft, JobRecord, JobStatus, JointProposal, LeaseRecord, LinkRecord,
+    LiveWeights, LogEvent, LogSnapshot, MatrixRecord, NodeDraft, NodeRecord, NormalizeOutcome,
+    OverrideRecord, PetitionDraft, PetitionRecord, ProposalDraft, ReadinessFlag, RebalanceState,
+    RefusalDraft, RefusalRecord, Severity,
 };
 use uuid::Uuid;
 
@@ -355,4 +356,125 @@ pub trait Store {
     /// The store's clock (Law XII: the only clock any elapsed-time
     /// judgment may consult).
     async fn store_now(&self) -> Result<time::OffsetDateTime, StoreError>;
+
+    // -- multi-stage FLAG (Law I.3: flag writes are idempotent upserts) --
+
+    /// The FLAG step certifying several stages in one act: every draft's
+    /// certified outputs must exist and validate; the WRITTEN → FLAGGED
+    /// transition happens exactly once. `write_flag` is the single-draft
+    /// special case.
+    async fn write_flags(
+        &self,
+        job_id: Uuid,
+        drafts: &[FlagDraft],
+    ) -> Result<Vec<ReadinessFlag>, StoreError>;
+
+    // -- matrices & the commitment chain (Law VI) --
+
+    /// The Aggregator's step 3 (VI.2): evaluates the category's
+    /// link-density against the sovereign coherence threshold — citing the
+    /// revision read, always — and on crossing creates the Postulant.
+    /// Returns None below the threshold or when a live matrix already
+    /// stands (one live matrix per category; emergence is idempotent).
+    /// Errors if the sovereign threshold is unset: no citation, no
+    /// evaluation (Law VI.1).
+    async fn emerge_postulant(
+        &self,
+        job_id: Uuid,
+        category: &str,
+        scope: Option<&[Uuid]>,
+    ) -> Result<Option<MatrixRecord>, StoreError>;
+
+    async fn get_matrix(&self, matrix_id: Uuid) -> Result<MatrixRecord, StoreError>;
+
+    async fn live_matrix_for_category(
+        &self,
+        category: &str,
+    ) -> Result<Option<MatrixRecord>, StoreError>;
+
+    /// Files an audit report under the truth-binding (Book II §2): every
+    /// claim's evidence_refs MUST resolve to live nodes or links; a report
+    /// carrying an unsupported word is refused before any write and never
+    /// flags.
+    async fn file_audit_report(
+        &self,
+        job_id: Uuid,
+        draft: &AuditReportDraft,
+    ) -> Result<AuditReport, StoreError>;
+
+    /// Reads a report under the isolation rule (SC-D04): the filer may
+    /// read its own; anyone else reads only after the AND-barrier has
+    /// certified that matrix revision. A pre-barrier cross-read is
+    /// rejected and logged.
+    async fn read_audit_report(
+        &self,
+        reader_job_id: Uuid,
+        report_id: Uuid,
+    ) -> Result<AuditReport, StoreError>;
+
+    /// Both reports for a matrix revision, in auditor order — the
+    /// barrier's and Reconciliation's read.
+    async fn audit_reports_for(
+        &self,
+        matrix_id: Uuid,
+        matrix_revision: i32,
+    ) -> Result<Vec<AuditReport>, StoreError>;
+
+    /// The supervisor as certifier, not driver (doc 3 §3.3): when both
+    /// auditors' flags are present and both underlying reports re-validate,
+    /// writes the composite barrier flag (office-authored, no job).
+    /// Missing or invalid prerequisites hold the barrier (error).
+    async fn certify_audit_barrier(&self, matrix_id: Uuid) -> Result<ReadinessFlag, StoreError>;
+
+    /// True iff the barrier flag stands for this matrix revision.
+    async fn audit_barrier_certified(
+        &self,
+        matrix_id: Uuid,
+        matrix_revision: i32,
+    ) -> Result<bool, StoreError>;
+
+    /// Reconciliation's output (Book II §2 step 4): one Joint Proposal per
+    /// matrix revision, filed only behind a certified barrier, its
+    /// amendments resolving into the matrix's membership.
+    async fn file_joint_proposal(
+        &self,
+        job_id: Uuid,
+        draft: &ProposalDraft,
+    ) -> Result<JointProposal, StoreError>;
+
+    async fn get_proposal(&self, proposal_id: Uuid) -> Result<JointProposal, StoreError>;
+
+    /// The sovereign's answer to a Joint Proposal — human only. GRANTED
+    /// mints the consent the Notary's chain requires; DECLINED leaves the
+    /// Postulant standing (decline is signal, and the halt of Law VI.4).
+    async fn resolve_proposal(
+        &self,
+        actor: &str,
+        proposal_id: Uuid,
+        decision: ConsentDecision,
+    ) -> Result<JointProposal, StoreError>;
+
+    /// The Notary's commitment labor (VI.3–VI.5): validates the full
+    /// proposal → consent chain, then applies exactly the consented
+    /// verdict — COMMIT → CARDINAL, AMEND → revision N+1 with precisely
+    /// the enumerated changes, REJECT → DISSOLVED (links persist).
+    /// Idempotent: a retry finding the verdict applied converges.
+    async fn execute_matrix_proposal(
+        &self,
+        notary_job_id: Uuid,
+        proposal_id: Uuid,
+    ) -> Result<MatrixRecord, StoreError>;
+
+    /// Human-invoked decommission (VI.5): mints the consent the Notary
+    /// executes against. Returns the consent id.
+    async fn consent_decommission(&self, actor: &str, matrix_id: Uuid) -> Result<Uuid, StoreError>;
+
+    /// The Notary's decommission labor: CARDINAL → DISSOLVED under a
+    /// resolving consent; the dissolved matrix's links persist.
+    async fn execute_decommission(
+        &self,
+        notary_job_id: Uuid,
+        matrix_id: Uuid,
+        consent_id: Uuid,
+    ) -> Result<MatrixRecord, StoreError>;
 }

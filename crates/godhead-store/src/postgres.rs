@@ -3,12 +3,14 @@ use crate::interface::Store;
 use crate::secrets;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
-    AgentType, AuditorName, Budgets, ConfigConstant, ConfigTier, ConsentDecision, ConsentRecord,
-    ConsentScope, EmbeddingRecord, Envelope, FlagDraft, FlagStatus, IntakeStatus, JobDraft,
-    JobRecord, JobStatus, Law, LeaseRecord, LinkRecord, LiveWeights, LogEvent, LogSnapshot,
-    NodeDraft, NodeRecord, NormalizeOutcome, OverrideBasis, OverrideKind, OverrideRecord,
-    PetitionDraft, PetitionRecord, PetitionStatus, ReadinessFlag, RebalanceState, RefusalDraft,
-    RefusalReason, RefusalRecord, SchemaRegistry, Severity, Tier, RECORD_SCHEMA_VERSION,
+    AgentType, AmendmentKind, AuditReport, AuditReportDraft, AuditorKind, AuditorName, Budgets,
+    Claim, ConfigConstant, ConfigTier, ConsentDecision, ConsentRecord, ConsentScope,
+    EmbeddingRecord, Envelope, FlagDraft, FlagStatus, IntakeStatus, JobDraft, JobRecord, JobStatus,
+    JointProposal, Law, LeaseRecord, LinkRecord, LiveWeights, LogEvent, LogSnapshot, MatrixRecord,
+    MatrixStatus, NodeDraft, NodeRecord, NormalizeOutcome, OverrideBasis, OverrideKind,
+    OverrideRecord, PetitionDraft, PetitionRecord, PetitionStatus, ProposalDraft, ReadinessFlag,
+    RebalanceState, RefusalDraft, RefusalReason, RefusalRecord, ReportKind, SchemaRegistry,
+    Severity, Tier, Verdict, RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -299,6 +301,109 @@ impl PgStore {
             revision: row.try_get("revision")?,
             envelope: Self::envelope_from_row(row)?,
         })
+    }
+
+    fn uuid_vec(value: &serde_json::Value, field: &str) -> Result<Vec<Uuid>, StoreError> {
+        let strings: Vec<String> = serde_json::from_value(value.clone())
+            .map_err(|e| StoreError::ValidationFailed(format!("stored {field}: {e}")))?;
+        strings
+            .iter()
+            .map(|s| Uuid::parse_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StoreError::ValidationFailed(format!("stored {field}: {e}")))
+    }
+
+    fn matrix_from_row(row: &PgRow) -> Result<MatrixRecord, StoreError> {
+        let status: String = row.try_get("status")?;
+        let node_refs: serde_json::Value = row.try_get("node_refs")?;
+        let link_refs: serde_json::Value = row.try_get("link_refs")?;
+        Ok(MatrixRecord {
+            matrix_id: row.try_get("matrix_id")?,
+            status: MatrixStatus::parse(&status).map_err(StoreError::from_schema)?,
+            category: row.try_get("category")?,
+            revision: row.try_get("revision")?,
+            audit_depth: row.try_get("audit_depth")?,
+            node_refs: Self::uuid_vec(&node_refs, "node_refs")?,
+            link_refs: Self::uuid_vec(&link_refs, "link_refs")?,
+            emerged_by: row.try_get("emerged_by")?,
+            config_rev: row.try_get("config_rev")?,
+            committed_proposal_ref: row.try_get("committed_proposal_ref")?,
+            committed_consent_ref: row.try_get("committed_consent_ref")?,
+            committed_at: row.try_get("committed_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn report_from_row(row: &PgRow) -> Result<AuditReport, StoreError> {
+        let auditor: String = row.try_get("auditor")?;
+        let kind: String = row.try_get("kind")?;
+        let claims: serde_json::Value = row.try_get("claims")?;
+        Ok(AuditReport {
+            report_id: row.try_get("report_id")?,
+            job_id: row.try_get("job_id")?,
+            matrix_ref: row.try_get("matrix_ref")?,
+            matrix_revision: row.try_get("matrix_revision")?,
+            auditor: AuditorKind::parse(&auditor).map_err(StoreError::from_schema)?,
+            kind: ReportKind::parse(&kind).map_err(StoreError::from_schema)?,
+            claims: serde_json::from_value(claims)
+                .map_err(|e| StoreError::ValidationFailed(format!("stored claims: {e}")))?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn proposal_from_row(row: &PgRow) -> Result<JointProposal, StoreError> {
+        let verdict: String = row.try_get("verdict")?;
+        let report_refs: serde_json::Value = row.try_get("report_refs")?;
+        let changes: serde_json::Value = row.try_get("changes")?;
+        let reasons: serde_json::Value = row.try_get("reasons")?;
+        Ok(JointProposal {
+            proposal_id: row.try_get("proposal_id")?,
+            job_id: row.try_get("job_id")?,
+            matrix_ref: row.try_get("matrix_ref")?,
+            matrix_revision: row.try_get("matrix_revision")?,
+            report_refs: Self::uuid_vec(&report_refs, "report_refs")?,
+            verdict: Verdict::parse(&verdict).map_err(StoreError::from_schema)?,
+            changes: serde_json::from_value(changes)
+                .map_err(|e| StoreError::ValidationFailed(format!("stored changes: {e}")))?,
+            reasons: serde_json::from_value(reasons)
+                .map_err(|e| StoreError::ValidationFailed(format!("stored reasons: {e}")))?,
+            consent_ref: row.try_get("consent_ref")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    /// The truth-binding (Book II §2): every evidence ref resolves to a
+    /// live node or link, or the claim does not validate.
+    async fn validate_claims(&self, claims: &[Claim]) -> Result<(), StoreError> {
+        for claim in claims {
+            if claim.claim.is_empty() {
+                return Err(StoreError::ValidationFailed(
+                    "a claim must say something (Book II §2)".into(),
+                ));
+            }
+            if claim.evidence_refs.is_empty() {
+                return Err(StoreError::ValidationFailed(format!(
+                    "claim '{}' carries no evidence — an unsupported word does not validate",
+                    claim.claim
+                )));
+            }
+            for evidence in &claim.evidence_refs {
+                let resolves: bool = sqlx::query_scalar(
+                    r#"SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = $1)
+                        OR EXISTS(SELECT 1 FROM links WHERE link_id = $1)"#,
+                )
+                .bind(evidence)
+                .fetch_one(&self.pool)
+                .await?;
+                if !resolves {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "claim '{}': evidence {evidence} does not resolve to a live record (truth-binding)",
+                        claim.claim
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The node's floor bucket — the category eligibility and links hang on.
@@ -726,6 +831,24 @@ impl Store for PgStore {
         job_id: Uuid,
         draft: &FlagDraft,
     ) -> Result<ReadinessFlag, StoreError> {
+        let mut flags = self
+            .write_flags(job_id, std::slice::from_ref(draft))
+            .await?;
+        flags
+            .pop()
+            .ok_or_else(|| StoreError::ValidationFailed("flag write returned nothing".into()))
+    }
+
+    async fn write_flags(
+        &self,
+        job_id: Uuid,
+        drafts: &[FlagDraft],
+    ) -> Result<Vec<ReadinessFlag>, StoreError> {
+        if drafts.is_empty() {
+            return Err(StoreError::ValidationFailed(
+                "the FLAG step certifies at least one stage".into(),
+            ));
+        }
         let job = self.guard_actor(job_id, "write_flag", false).await?;
         // I.1: FLAG follows VALIDATE_OUT follows WRITE — the job stands WRITTEN.
         if job.status != JobStatus::Written {
@@ -734,64 +857,72 @@ impl Store for PgStore {
                 job.status
             )));
         }
-        if draft.stage.is_empty() {
-            return Err(StoreError::ValidationFailed(
-                "flag stage must be non-empty".into(),
-            ));
-        }
-        if draft.certifies.output_slots.len() != draft.certifies.revisions.len() {
-            return Err(StoreError::ValidationFailed(
-                "certifies.output_slots and certifies.revisions must correspond one-to-one (III.2)"
-                    .into(),
-            ));
-        }
-        // III.2: a flag is written only after its certified outputs exist and
-        // validate — flag-before-output is rejected (SC-B01).
-        for (slot, expected_rev) in draft
-            .certifies
-            .output_slots
-            .iter()
-            .zip(draft.certifies.revisions.iter())
-        {
-            let artifact = self.read_artifact(job_id, slot).await.map_err(|_| {
-                StoreError::ValidationFailed(format!(
-                    "flag certifies output '{slot}' which does not exist authoritatively — a flag is written only after its outputs (Law III.2)"
-                ))
-            })?;
-            if artifact.revision != *expected_rev {
-                return Err(StoreError::ValidationFailed(format!(
-                    "flag certifies '{slot}' at revision {expected_rev} but the store holds revision {} (Law III.2)",
-                    artifact.revision
-                )));
+        for draft in drafts {
+            if draft.stage.is_empty() {
+                return Err(StoreError::ValidationFailed(
+                    "flag stage must be non-empty".into(),
+                ));
             }
-            self.registry
-                .check(
-                    &artifact.envelope.schema_name,
-                    &artifact.envelope.schema_version,
-                    &artifact.payload,
-                )
-                .map_err(StoreError::from_schema)?;
+            if draft.certifies.output_slots.len() != draft.certifies.revisions.len() {
+                return Err(StoreError::ValidationFailed(
+                    "certifies.output_slots and certifies.revisions must correspond one-to-one (III.2)"
+                        .into(),
+                ));
+            }
+            // III.2: a flag is written only after its certified outputs exist
+            // and validate — flag-before-output is rejected (SC-B01).
+            for (slot, expected_rev) in draft
+                .certifies
+                .output_slots
+                .iter()
+                .zip(draft.certifies.revisions.iter())
+            {
+                let artifact = self.read_artifact(job_id, slot).await.map_err(|_| {
+                    StoreError::ValidationFailed(format!(
+                        "flag certifies output '{slot}' which does not exist authoritatively — a flag is written only after its outputs (Law III.2)"
+                    ))
+                })?;
+                if artifact.revision != *expected_rev {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "flag certifies '{slot}' at revision {expected_rev} but the store holds revision {} (Law III.2)",
+                        artifact.revision
+                    )));
+                }
+                self.registry
+                    .check(
+                        &artifact.envelope.schema_name,
+                        &artifact.envelope.schema_version,
+                        &artifact.payload,
+                    )
+                    .map_err(StoreError::from_schema)?;
+            }
         }
         let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            r#"INSERT INTO readiness_flags
-                 (flag_id, job_id, stage, certifies, validator,
-                  schema_name, schema_version, produced_by)
-               VALUES ($1, $2, $3, $4, $5, 'ReadinessFlag', $6, $2::text)
-               ON CONFLICT (job_id, stage) DO UPDATE
-               SET certifies = EXCLUDED.certifies,
-                   validator = EXCLUDED.validator,
-                   revision = readiness_flags.revision + 1
-               RETURNING *"#,
-        )
-        .bind(Uuid::now_v7())
-        .bind(job_id)
-        .bind(&draft.stage)
-        .bind(serde_json::to_value(&draft.certifies).expect("certifies serializes"))
-        .bind(serde_json::to_value(&draft.validator).expect("validator serializes"))
-        .bind(RECORD_SCHEMA_VERSION)
-        .fetch_one(&mut *tx)
-        .await?;
+        let mut flags = Vec::with_capacity(drafts.len());
+        for draft in drafts {
+            let row = sqlx::query(
+                r#"INSERT INTO readiness_flags
+                     (flag_id, job_id, stage, certifies, validator,
+                      schema_name, schema_version, produced_by)
+                   VALUES ($1, $2, $3, $4, $5, 'ReadinessFlag', $6, $2::text)
+                   ON CONFLICT (job_id, stage) DO UPDATE
+                   SET certifies = EXCLUDED.certifies,
+                       validator = EXCLUDED.validator,
+                       revision = readiness_flags.revision + 1
+                   RETURNING *"#,
+            )
+            .bind(Uuid::now_v7())
+            .bind(job_id)
+            .bind(&draft.stage)
+            .bind(serde_json::to_value(&draft.certifies).expect("certifies serializes"))
+            .bind(serde_json::to_value(&draft.validator).expect("validator serializes"))
+            .bind(RECORD_SCHEMA_VERSION)
+            .fetch_one(&mut *tx)
+            .await?;
+            flags.push(Self::flag_from_row(&row)?);
+        }
+        // The WRITTEN → FLAGGED transition happens exactly once, however
+        // many stages this FLAG step certifies.
         sqlx::query(
             r#"UPDATE job_records SET status = 'FLAGGED', revision = revision + 1
                WHERE job_id = $1 AND status = 'WRITTEN'"#,
@@ -800,15 +931,16 @@ impl Store for PgStore {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        let stages: Vec<&str> = drafts.iter().map(|d| d.stage.as_str()).collect();
         self.append_log(
             &job_id.to_string(),
             LogEvent::JobTransition,
-            &serde_json::json!({ "from": "WRITTEN", "to": "FLAGGED", "stage": draft.stage }),
+            &serde_json::json!({ "from": "WRITTEN", "to": "FLAGGED", "stages": stages }),
             Severity::Info,
             "store",
         )
         .await?;
-        Self::flag_from_row(&row)
+        Ok(flags)
     }
 
     async fn get_flag(&self, flag_id: Uuid) -> Result<ReadinessFlag, StoreError> {
@@ -874,6 +1006,11 @@ impl Store for PgStore {
             )));
         }
         // III.3: the flag is testimony; the state is the witness.
+        let flag_job = flag.job_id.ok_or_else(|| {
+            StoreError::ValidationFailed(format!(
+                "flag {flag_id} is office-authored; it certifies no job outputs to read"
+            ))
+        })?;
         let mut witnessed = Vec::with_capacity(flag.certifies.output_slots.len());
         let mut defect: Option<String> = None;
         for (slot, expected_rev) in flag
@@ -882,7 +1019,7 @@ impl Store for PgStore {
             .iter()
             .zip(flag.certifies.revisions.iter())
         {
-            match self.read_artifact(flag.job_id, slot).await {
+            match self.read_artifact(flag_job, slot).await {
                 Ok(artifact) => {
                     if artifact.revision != *expected_rev {
                         defect = Some(format!(
@@ -2154,5 +2291,842 @@ impl Store for PgStore {
         Ok(sqlx::query_scalar("SELECT now()")
             .fetch_one(&self.pool)
             .await?)
+    }
+
+    async fn emerge_postulant(
+        &self,
+        job_id: Uuid,
+        category: &str,
+        scope: Option<&[Uuid]>,
+    ) -> Result<Option<MatrixRecord>, StoreError> {
+        let job = self.guard_actor(job_id, "emerge_postulant", false).await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "emergence is recorded during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        // VI.2: emergence detection is the Aggregator's alone; no other
+        // agent may declare a Postulant.
+        if job.agent_type != AgentType::Aggregator {
+            return Err(StoreError::ValidationFailed(format!(
+                "emergence belongs to the Aggregators; {} may not declare a Postulant (Law VI.2)",
+                job.agent_type
+            )));
+        }
+        // Law VI.1: the evaluation cites the revision it read, or it does
+        // not happen.
+        let threshold = self.get_config("coherence_threshold").await.map_err(|_| {
+            StoreError::ValidationFailed(
+                "coherence_threshold is not set; a density evaluation must cite the sovereign constant (Law VI.1)"
+                    .into(),
+            )
+        })?;
+        let threshold_value = threshold.value.as_f64().ok_or_else(|| {
+            StoreError::ValidationFailed("coherence_threshold must be numeric".into())
+        })?;
+        // One live matrix per category: emergence is idempotent.
+        if self.live_matrix_for_category(category).await?.is_some() {
+            return Ok(None);
+        }
+        let links = self.links_by_category(category, scope).await?;
+        let mut nodes = std::collections::HashSet::new();
+        for link in &links {
+            nodes.insert(link.source_ref);
+            nodes.insert(link.target_ref);
+        }
+        #[allow(clippy::cast_precision_loss)] // counts are tiny vs f32 range
+        let density = if nodes.is_empty() {
+            0.0f32
+        } else {
+            links.len() as f32 / nodes.len() as f32
+        };
+        if f64::from(density) < threshold_value {
+            return Ok(None);
+        }
+        let mut node_refs: Vec<String> = nodes.iter().map(Uuid::to_string).collect();
+        node_refs.sort();
+        let link_refs: Vec<String> = links.iter().map(|l| l.link_id.to_string()).collect();
+        // One transaction: the Postulant and its emergence record land
+        // together (Law V.1). ON CONFLICT on the live-matrix partial index
+        // arbitrates racing passes: the loser records nothing.
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            r#"INSERT INTO matrices
+                 (matrix_id, category, node_refs, link_refs, emerged_by, config_rev,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, 'MatrixRecord', $7, $5::text)
+               ON CONFLICT (category) WHERE status IN ('POSTULANT','CARDINAL') DO NOTHING
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(category)
+        .bind(serde_json::to_value(&node_refs).expect("string vec serializes"))
+        .bind(serde_json::to_value(&link_refs).expect("string vec serializes"))
+        .bind(job_id)
+        .bind(threshold.revision)
+        .bind(RECORD_SCHEMA_VERSION)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(row) = row else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+        let matrix = Self::matrix_from_row(&row)?;
+        let subject = matrix.matrix_id.to_string();
+        sqlx::query(
+            r#"INSERT INTO log_snapshots
+                 (log_id, subject_ref, event, payload, prior_ref, severity,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, 'POSTULANT_EMERGED', $3,
+                 (SELECT log_id FROM log_snapshots WHERE subject_ref = $2
+                  ORDER BY seq DESC LIMIT 1),
+                 'info', 'LogSnapshot', $4, $5::text)"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(&subject)
+        .bind(serde_json::json!({
+            "category": category,
+            "density": density,
+            "config_rev": threshold.revision,
+            "audit_depth": 0,
+        }))
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(Some(matrix))
+    }
+
+    async fn get_matrix(&self, matrix_id: Uuid) -> Result<MatrixRecord, StoreError> {
+        let row = sqlx::query("SELECT * FROM matrices WHERE matrix_id = $1")
+            .bind(matrix_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such matrix {matrix_id}")))?;
+        Self::matrix_from_row(&row)
+    }
+
+    async fn live_matrix_for_category(
+        &self,
+        category: &str,
+    ) -> Result<Option<MatrixRecord>, StoreError> {
+        let row = sqlx::query(
+            "SELECT * FROM matrices WHERE category = $1 AND status IN ('POSTULANT','CARDINAL')",
+        )
+        .bind(category)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref().map(Self::matrix_from_row).transpose()
+    }
+
+    async fn file_audit_report(
+        &self,
+        job_id: Uuid,
+        draft: &AuditReportDraft,
+    ) -> Result<AuditReport, StoreError> {
+        let job = self.guard_actor(job_id, "file_audit_report", false).await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "reports are filed during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if job.agent_type != AgentType::Auditor {
+            return Err(StoreError::ValidationFailed(format!(
+                "only an Auditor files audit reports, not {} (Book II §2)",
+                job.agent_type
+            )));
+        }
+        let matrix = self.get_matrix(draft.matrix_ref).await?;
+        if matrix.status != MatrixStatus::Postulant {
+            return Err(StoreError::ValidationFailed(format!(
+                "audit tries Postulants; matrix {} is {} (Law VI.3)",
+                matrix.matrix_id, matrix.status
+            )));
+        }
+        if matrix.revision != draft.matrix_revision {
+            return Err(StoreError::ValidationFailed(format!(
+                "report addresses matrix revision {} but the store holds {} — the world moved on",
+                draft.matrix_revision, matrix.revision
+            )));
+        }
+        // The truth-binding: a claim whose evidence does not resolve fails
+        // VALIDATE_OUT here, and the report never exists to flag (SC-D06).
+        self.validate_claims(&draft.claims).await?;
+        let expected_kind = match draft.auditor {
+            AuditorKind::Gabriel => ReportKind::Affirmation,
+            AuditorKind::Lucy => ReportKind::Indictment,
+        };
+        if draft.kind != expected_kind {
+            return Err(StoreError::ValidationFailed(format!(
+                "{} files {}, nothing else (Book II §2)",
+                draft.auditor, expected_kind
+            )));
+        }
+        let row = sqlx::query(
+            r#"INSERT INTO audit_reports
+                 (report_id, job_id, matrix_ref, matrix_revision, auditor, kind, claims,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'AuditReport', $8, $2::text)
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(job_id)
+        .bind(draft.matrix_ref)
+        .bind(draft.matrix_revision)
+        .bind(draft.auditor.as_str())
+        .bind(draft.kind.as_str())
+        .bind(serde_json::to_value(&draft.claims).expect("claims serialize"))
+        .bind(RECORD_SCHEMA_VERSION)
+        .fetch_one(&self.pool)
+        .await?;
+        self.append_log(
+            &draft.matrix_ref.to_string(),
+            LogEvent::ReportFiled,
+            &serde_json::json!({
+                "auditor": draft.auditor.as_str(),
+                "kind": draft.kind.as_str(),
+                "claims": draft.claims.len(),
+                "matrix_revision": draft.matrix_revision,
+            }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Self::report_from_row(&row)
+    }
+
+    async fn read_audit_report(
+        &self,
+        reader_job_id: Uuid,
+        report_id: Uuid,
+    ) -> Result<AuditReport, StoreError> {
+        self.guard_actor(reader_job_id, "read_audit_report", false)
+            .await?;
+        let row = sqlx::query("SELECT * FROM audit_reports WHERE report_id = $1")
+            .bind(report_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such report {report_id}")))?;
+        let report = Self::report_from_row(&row)?;
+        if report.job_id == reader_job_id {
+            return Ok(report);
+        }
+        // SC-D04: until the barrier certifies, no one reads another's
+        // report — the auditors work blind to each other by construction.
+        if !self
+            .audit_barrier_certified(report.matrix_ref, report.matrix_revision)
+            .await?
+        {
+            self.append_log(
+                &report.matrix_ref.to_string(),
+                LogEvent::Violation,
+                &serde_json::json!({
+                    "operation": "read_audit_report",
+                    "reader": reader_job_id.to_string(),
+                    "report": report_id.to_string(),
+                    "pre_barrier": true,
+                }),
+                Severity::Violation,
+                "store",
+            )
+            .await?;
+            return Err(StoreError::Forbidden(format!(
+                "report {report_id} is sealed until the AND-barrier certifies (Book II §2, SC-D04)"
+            )));
+        }
+        Ok(report)
+    }
+
+    async fn audit_reports_for(
+        &self,
+        matrix_id: Uuid,
+        matrix_revision: i32,
+    ) -> Result<Vec<AuditReport>, StoreError> {
+        let rows = sqlx::query(
+            r#"SELECT * FROM audit_reports
+               WHERE matrix_ref = $1 AND matrix_revision = $2 ORDER BY auditor"#,
+        )
+        .bind(matrix_id)
+        .bind(matrix_revision)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(Self::report_from_row).collect()
+    }
+
+    async fn certify_audit_barrier(&self, matrix_id: Uuid) -> Result<ReadinessFlag, StoreError> {
+        let matrix = self.get_matrix(matrix_id).await?;
+        if matrix.status != MatrixStatus::Postulant {
+            return Err(StoreError::ValidationFailed(format!(
+                "audit tries Postulants; matrix {matrix_id} is {} (Law VI.3)",
+                matrix.status
+            )));
+        }
+        let reports = self.audit_reports_for(matrix_id, matrix.revision).await?;
+        if reports.len() != 2 {
+            return Err(StoreError::ValidationFailed(format!(
+                "the barrier holds: {} of 2 reports present for matrix {matrix_id} rev {} (doc 3 §3.3)",
+                reports.len(),
+                matrix.revision
+            )));
+        }
+        for report in &reports {
+            // Both filing jobs must have flagged (their labor certified)…
+            let filer = self.get_job(report.job_id).await?;
+            if !matches!(filer.status, JobStatus::Flagged | JobStatus::Terminated) {
+                return Err(StoreError::ValidationFailed(format!(
+                    "the barrier holds: {}'s filing job is {} — uncertified labor (Law III.2)",
+                    report.auditor, filer.status
+                )));
+            }
+            // …and the underlying state must re-validate (Law III.3: a flag
+            // is testimony; the state is the witness).
+            self.validate_claims(&report.claims).await.map_err(|e| {
+                StoreError::FlagUntrusted(format!(
+                    "the barrier holds: {}'s report no longer validates: {e}",
+                    report.auditor
+                ))
+            })?;
+        }
+        // The composite readiness flag — office-authored: the supervisor
+        // certifies, the dispatcher invokes (doc 3 §3.2–3.3).
+        let stage = format!("supervisor:audit_barrier:{matrix_id}:{}", matrix.revision);
+        let certifies = godhead_schemas::Certifies {
+            output_slots: reports.iter().map(|r| r.report_id.to_string()).collect(),
+            revisions: vec![matrix.revision; 2],
+        };
+        let validator = godhead_schemas::Validator {
+            id: "supervisor/audit_barrier".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        // One certification per barrier: the office-flag unique index
+        // arbitrates racing supervisors; the loser adopts the standing flag.
+        let row = sqlx::query(
+            r#"INSERT INTO readiness_flags
+                 (flag_id, job_id, stage, certifies, validator,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, NULL, $2, $3, $4, 'ReadinessFlag', $5, 'supervisor')
+               ON CONFLICT (stage) WHERE job_id IS NULL DO NOTHING
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(&stage)
+        .bind(serde_json::to_value(&certifies).expect("certifies serializes"))
+        .bind(serde_json::to_value(&validator).expect("validator serializes"))
+        .bind(RECORD_SCHEMA_VERSION)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some(row) => Self::flag_from_row(&row),
+            None => {
+                let row = sqlx::query(
+                    "SELECT * FROM readiness_flags WHERE stage = $1 AND job_id IS NULL",
+                )
+                .bind(&stage)
+                .fetch_one(&self.pool)
+                .await?;
+                Self::flag_from_row(&row)
+            }
+        }
+    }
+
+    async fn audit_barrier_certified(
+        &self,
+        matrix_id: Uuid,
+        matrix_revision: i32,
+    ) -> Result<bool, StoreError> {
+        let stage = format!("supervisor:audit_barrier:{matrix_id}:{matrix_revision}");
+        let exists: bool = sqlx::query_scalar(
+            r#"SELECT EXISTS(SELECT 1 FROM readiness_flags
+               WHERE stage = $1 AND status IN ('ACTIVE','CONSUMED'))"#,
+        )
+        .bind(stage)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(exists)
+    }
+
+    async fn file_joint_proposal(
+        &self,
+        job_id: Uuid,
+        draft: &ProposalDraft,
+    ) -> Result<JointProposal, StoreError> {
+        let job = self
+            .guard_actor(job_id, "file_joint_proposal", false)
+            .await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "proposals are filed during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if job.agent_type != AgentType::Reconciler {
+            return Err(StoreError::ValidationFailed(format!(
+                "only Reconciliation files a Joint Proposal, not {} (Book II §2)",
+                job.agent_type
+            )));
+        }
+        // The barrier released this labor; it had better be certified.
+        if !self
+            .audit_barrier_certified(draft.matrix_ref, draft.matrix_revision)
+            .await?
+        {
+            return Err(StoreError::ValidationFailed(
+                "no certified barrier stands behind this proposal (doc 3 §3.3)".into(),
+            ));
+        }
+        let matrix = self.get_matrix(draft.matrix_ref).await?;
+        if matrix.status != MatrixStatus::Postulant {
+            return Err(StoreError::ValidationFailed(format!(
+                "audit tries Postulants; matrix {} is {} (Law VI.3)",
+                matrix.matrix_id, matrix.status
+            )));
+        }
+        if matrix.revision != draft.matrix_revision {
+            return Err(StoreError::ValidationFailed(format!(
+                "proposal addresses revision {} but the store holds {}",
+                draft.matrix_revision, matrix.revision
+            )));
+        }
+        let reports = self
+            .audit_reports_for(draft.matrix_ref, draft.matrix_revision)
+            .await?;
+        let mut expected: Vec<Uuid> = reports.iter().map(|r| r.report_id).collect();
+        let mut given = draft.report_refs.to_vec();
+        expected.sort();
+        given.sort();
+        if expected != given {
+            return Err(StoreError::ValidationFailed(
+                "the proposal must cite exactly the two barrier-certified reports".into(),
+            ));
+        }
+        // Law III.3 at consumption — the double-validation covenant: the
+        // proposal is filed against reports that STILL validate, whatever
+        // happened to them since the barrier.
+        for report in &reports {
+            self.validate_claims(&report.claims).await.map_err(|e| {
+                StoreError::FlagUntrusted(format!(
+                    "{}'s report no longer validates at proposal time: {e}",
+                    report.auditor
+                ))
+            })?;
+        }
+        // A.11 shape rules, and every amendment resolves into membership.
+        match draft.verdict {
+            Verdict::Amend if draft.changes.is_empty() => {
+                return Err(StoreError::ValidationFailed(
+                    "AMEND requires enumerated changes (A.11)".into(),
+                ))
+            }
+            Verdict::Commit | Verdict::Reject if !draft.changes.is_empty() => {
+                return Err(StoreError::ValidationFailed(
+                    "only AMEND carries changes (A.11)".into(),
+                ))
+            }
+            Verdict::Reject if draft.reasons.is_empty() => {
+                return Err(StoreError::ValidationFailed(
+                    "REJECT requires reasons (A.11)".into(),
+                ))
+            }
+            _ => {}
+        }
+        for change in &draft.changes {
+            let kind = AmendmentKind::parse(&change.kind).map_err(StoreError::from_schema)?;
+            let member = match kind {
+                AmendmentKind::RemoveLink => matrix.link_refs.contains(&change.subject_ref),
+                AmendmentKind::RemoveNode => matrix.node_refs.contains(&change.subject_ref),
+            };
+            if !member {
+                return Err(StoreError::ValidationFailed(format!(
+                    "amendment {} {} does not resolve into the matrix's membership",
+                    change.kind, change.subject_ref
+                )));
+            }
+        }
+        let row = sqlx::query(
+            r#"INSERT INTO joint_proposals
+                 (proposal_id, job_id, matrix_ref, matrix_revision, report_refs, verdict,
+                  changes, reasons, schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'JointProposal', $9, $2::text)
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(job_id)
+        .bind(draft.matrix_ref)
+        .bind(draft.matrix_revision)
+        .bind(
+            serde_json::to_value(
+                draft
+                    .report_refs
+                    .iter()
+                    .map(Uuid::to_string)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("refs serialize"),
+        )
+        .bind(draft.verdict.as_str())
+        .bind(serde_json::to_value(&draft.changes).expect("changes serialize"))
+        .bind(serde_json::to_value(&draft.reasons).expect("reasons serialize"))
+        .bind(RECORD_SCHEMA_VERSION)
+        .fetch_one(&self.pool)
+        .await?;
+        self.append_log(
+            &draft.matrix_ref.to_string(),
+            LogEvent::ProposalFiled,
+            &serde_json::json!({
+                "verdict": draft.verdict.as_str(),
+                "changes": draft.changes.len(),
+                "matrix_revision": draft.matrix_revision,
+                "audit_depth": matrix.audit_depth,
+            }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Self::proposal_from_row(&row)
+    }
+
+    async fn get_proposal(&self, proposal_id: Uuid) -> Result<JointProposal, StoreError> {
+        let row = sqlx::query("SELECT * FROM joint_proposals WHERE proposal_id = $1")
+            .bind(proposal_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such proposal {proposal_id}")))?;
+        Self::proposal_from_row(&row)
+    }
+
+    async fn resolve_proposal(
+        &self,
+        actor: &str,
+        proposal_id: Uuid,
+        decision: ConsentDecision,
+    ) -> Result<JointProposal, StoreError> {
+        let proposal = self.get_proposal(proposal_id).await?;
+        if !matches!(
+            decision,
+            ConsentDecision::Granted | ConsentDecision::Declined
+        ) {
+            return Err(StoreError::ValidationFailed(format!(
+                "{decision} is not an answer to a proposal; consent or decline (Book II §2)"
+            )));
+        }
+        let decision_text = match decision {
+            ConsentDecision::Granted => "GRANTED",
+            _ => "DECLINED",
+        };
+        // One transaction, one arbiter: the guarded UPDATE is the atomic
+        // check-and-claim — of N racing answers exactly one lands, and the
+        // losers' consent inserts roll back with them. The sovereign
+        // speaks once, mechanically (backed by the set-once trigger).
+        let consent_id = Uuid::now_v7();
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            r#"INSERT INTO consent_records
+                 (consent_id, subject_ref, decision, scope, decided_by,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, 'ITEM', $4, 'ConsentRecord', $5, $4)"#,
+        )
+        .bind(consent_id)
+        .bind(proposal_id)
+        .bind(decision_text)
+        .bind(actor)
+        .bind(RECORD_SCHEMA_VERSION)
+        .execute(&mut *tx)
+        .await?;
+        let claimed = sqlx::query(
+            r#"UPDATE joint_proposals SET consent_ref = $2
+               WHERE proposal_id = $1 AND consent_ref IS NULL"#,
+        )
+        .bind(proposal_id)
+        .bind(consent_id)
+        .execute(&mut *tx)
+        .await?;
+        if claimed.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Err(StoreError::ValidationFailed(format!(
+                "proposal {proposal_id} is already answered; the sovereign speaks once"
+            )));
+        }
+        tx.commit().await?;
+        // Declined → the Postulant stands; the decline is logged, and is
+        // signal (Book II §2 step 5, and Law VI.4's sovereign halt).
+        self.append_log(
+            &proposal.matrix_ref.to_string(),
+            LogEvent::ProposalResolved,
+            &serde_json::json!({
+                "proposal": proposal_id.to_string(),
+                "decision": decision_text,
+            }),
+            Severity::Info,
+            actor,
+        )
+        .await?;
+        self.get_proposal(proposal_id).await
+    }
+
+    async fn execute_matrix_proposal(
+        &self,
+        notary_job_id: Uuid,
+        proposal_id: Uuid,
+    ) -> Result<MatrixRecord, StoreError> {
+        let job = self
+            .guard_actor(notary_job_id, "execute_matrix_proposal", false)
+            .await?;
+        if job.agent_type != AgentType::Notary {
+            return Err(StoreError::ValidationFailed(format!(
+                "only a summoned Notary executes consent, not {} (Book II §3)",
+                job.agent_type
+            )));
+        }
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "consent is executed during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        let proposal = self.get_proposal(proposal_id).await?;
+        // The chain: proposal → consent, resolving and cross-referencing.
+        let consent_id = proposal.consent_ref.ok_or_else(|| {
+            StoreError::ValidationFailed(format!(
+                "proposal {proposal_id} has no consent — the chain does not resolve (Law VI.3)"
+            ))
+        })?;
+        let consent = self.get_consent(consent_id).await?;
+        if consent.subject_ref != proposal_id {
+            return Err(StoreError::ValidationFailed(format!(
+                "consent {consent_id} does not answer proposal {proposal_id} — the chain does not cross-reference"
+            )));
+        }
+        if consent.decision != ConsentDecision::Granted {
+            return Err(StoreError::ValidationFailed(format!(
+                "consent {consent_id} is {}, not GRANTED; there is nothing to execute",
+                consent.decision
+            )));
+        }
+        let matrix = self.get_matrix(proposal.matrix_ref).await?;
+        // Idempotency (SC-D10): a retry finding the verdict applied converges.
+        let already_applied = match proposal.verdict {
+            Verdict::Commit => {
+                matrix.status == MatrixStatus::Cardinal
+                    && matrix.committed_proposal_ref == Some(proposal_id)
+            }
+            Verdict::Amend => matrix.revision > proposal.matrix_revision,
+            Verdict::Reject => matrix.status == MatrixStatus::Dissolved,
+        };
+        if already_applied {
+            return Ok(matrix);
+        }
+        // The verdict applies to a standing Postulant and nothing else:
+        // a Cardinal is not re-tried, a dissolved matrix does not rise.
+        if matrix.status != MatrixStatus::Postulant {
+            return Err(StoreError::ValidationFailed(format!(
+                "the verdict applies to a Postulant; matrix {} is {} (Law VI.3, VI.5)",
+                matrix.matrix_id, matrix.status
+            )));
+        }
+        if matrix.revision != proposal.matrix_revision {
+            return Err(StoreError::ValidationFailed(format!(
+                "proposal addresses revision {} but the matrix stands at {} — the world moved on (Law VII)",
+                proposal.matrix_revision, matrix.revision
+            )));
+        }
+        // One transaction: the state change and its provenance land
+        // together or not at all — the mandatory record cannot be lost to
+        // a crash between them (Law V.1).
+        let mut tx = self.pool.begin().await?;
+        let applied = match proposal.verdict {
+            Verdict::Commit => {
+                // The substrate's commitment-chain trigger re-validates the
+                // whole chain beneath this statement (VI.3).
+                sqlx::query(
+                    r#"UPDATE matrices
+                       SET status = 'CARDINAL', committed_proposal_ref = $2,
+                           committed_consent_ref = $3, committed_at = now(),
+                           revision = revision + 1
+                       WHERE matrix_id = $1 AND revision = $4"#,
+                )
+                .bind(matrix.matrix_id)
+                .bind(proposal_id)
+                .bind(consent_id)
+                .bind(matrix.revision)
+                .execute(&mut *tx)
+                .await?
+            }
+            Verdict::Amend => {
+                // Exactly the enumerated changes — no more, no less (VI.4).
+                let mut node_refs = matrix.node_refs.clone();
+                let mut link_refs = matrix.link_refs.clone();
+                for change in &proposal.changes {
+                    let kind =
+                        AmendmentKind::parse(&change.kind).map_err(StoreError::from_schema)?;
+                    match kind {
+                        AmendmentKind::RemoveLink => link_refs.retain(|r| *r != change.subject_ref),
+                        AmendmentKind::RemoveNode => node_refs.retain(|r| *r != change.subject_ref),
+                    }
+                }
+                let node_refs: Vec<String> = node_refs.iter().map(Uuid::to_string).collect();
+                let link_refs: Vec<String> = link_refs.iter().map(Uuid::to_string).collect();
+                sqlx::query(
+                    r#"UPDATE matrices
+                       SET node_refs = $2, link_refs = $3,
+                           revision = revision + 1, audit_depth = audit_depth + 1
+                       WHERE matrix_id = $1 AND revision = $4"#,
+                )
+                .bind(matrix.matrix_id)
+                .bind(serde_json::to_value(&node_refs).expect("refs serialize"))
+                .bind(serde_json::to_value(&link_refs).expect("refs serialize"))
+                .bind(matrix.revision)
+                .execute(&mut *tx)
+                .await?
+            }
+            Verdict::Reject => {
+                // The trial failed and the sovereign confirmed it: the
+                // Postulant dissolves; its links persist untouched (VI.5).
+                sqlx::query(
+                    r#"UPDATE matrices SET status = 'DISSOLVED', revision = revision + 1
+                       WHERE matrix_id = $1 AND revision = $2"#,
+                )
+                .bind(matrix.matrix_id)
+                .bind(matrix.revision)
+                .execute(&mut *tx)
+                .await?
+            }
+        };
+        if applied.rows_affected() == 0 {
+            return Err(StoreError::StaleRevision {
+                expected: matrix.revision,
+                subject: format!("matrix:{}", matrix.matrix_id),
+            });
+        }
+        let (event, depth) = match proposal.verdict {
+            Verdict::Commit => (LogEvent::Committed, matrix.audit_depth),
+            Verdict::Amend => (LogEvent::Amended, matrix.audit_depth + 1),
+            Verdict::Reject => (LogEvent::Decommissioned, matrix.audit_depth),
+        };
+        // Provenance linking every reference (SC-D10): proposal, consent,
+        // executor, depth — the loop closes on the record, atomically.
+        let subject = matrix.matrix_id.to_string();
+        sqlx::query(
+            r#"INSERT INTO log_snapshots
+                 (log_id, subject_ref, event, payload, prior_ref, severity,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4,
+                 (SELECT log_id FROM log_snapshots WHERE subject_ref = $2
+                  ORDER BY seq DESC LIMIT 1),
+                 'info', 'LogSnapshot', $5, $6::text)"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(&subject)
+        .bind(event.as_str())
+        .bind(serde_json::json!({
+            "proposal": proposal_id.to_string(),
+            "consent": consent_id.to_string(),
+            "executed_by_job": notary_job_id.to_string(),
+            "verdict": proposal.verdict.as_str(),
+            "audit_depth": depth,
+        }))
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(notary_job_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.get_matrix(matrix.matrix_id).await
+    }
+
+    async fn consent_decommission(&self, actor: &str, matrix_id: Uuid) -> Result<Uuid, StoreError> {
+        let matrix = self.get_matrix(matrix_id).await?;
+        if matrix.status != MatrixStatus::Cardinal {
+            return Err(StoreError::ValidationFailed(format!(
+                "decommission reverses commitment; matrix {matrix_id} is {} (Law VI.5)",
+                matrix.status
+            )));
+        }
+        let consent_id = Uuid::now_v7();
+        sqlx::query(
+            r#"INSERT INTO consent_records
+                 (consent_id, subject_ref, decision, scope, decided_by,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, 'GRANTED', 'ITEM', $3, 'ConsentRecord', $4, $3)"#,
+        )
+        .bind(consent_id)
+        .bind(matrix_id)
+        .bind(actor)
+        .bind(RECORD_SCHEMA_VERSION)
+        .execute(&self.pool)
+        .await?;
+        Ok(consent_id)
+    }
+
+    async fn execute_decommission(
+        &self,
+        notary_job_id: Uuid,
+        matrix_id: Uuid,
+        consent_id: Uuid,
+    ) -> Result<MatrixRecord, StoreError> {
+        let job = self
+            .guard_actor(notary_job_id, "execute_decommission", false)
+            .await?;
+        if job.agent_type != AgentType::Notary {
+            return Err(StoreError::ValidationFailed(format!(
+                "only a summoned Notary executes consent, not {} (Book II §3)",
+                job.agent_type
+            )));
+        }
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "consent is executed during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        let consent = self.get_consent(consent_id).await?;
+        if consent.subject_ref != matrix_id || consent.decision != ConsentDecision::Granted {
+            return Err(StoreError::ValidationFailed(format!(
+                "consent {consent_id} does not grant the decommission of matrix {matrix_id}"
+            )));
+        }
+        let matrix = self.get_matrix(matrix_id).await?;
+        if matrix.status == MatrixStatus::Dissolved {
+            return Ok(matrix); // idempotent retry converges
+        }
+        // One transaction: dissolution and its record land together.
+        let mut tx = self.pool.begin().await?;
+        let applied = sqlx::query(
+            r#"UPDATE matrices SET status = 'DISSOLVED', revision = revision + 1
+               WHERE matrix_id = $1 AND revision = $2"#,
+        )
+        .bind(matrix_id)
+        .bind(matrix.revision)
+        .execute(&mut *tx)
+        .await?;
+        if applied.rows_affected() == 0 {
+            return Err(StoreError::StaleRevision {
+                expected: matrix.revision,
+                subject: format!("matrix:{matrix_id}"),
+            });
+        }
+        let subject = matrix_id.to_string();
+        sqlx::query(
+            r#"INSERT INTO log_snapshots
+                 (log_id, subject_ref, event, payload, prior_ref, severity,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, 'DECOMMISSIONED', $3,
+                 (SELECT log_id FROM log_snapshots WHERE subject_ref = $2
+                  ORDER BY seq DESC LIMIT 1),
+                 'info', 'LogSnapshot', $4, $5::text)"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(&subject)
+        .bind(serde_json::json!({
+            "consent": consent_id.to_string(),
+            "executed_by_job": notary_job_id.to_string(),
+        }))
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(notary_job_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.get_matrix(matrix_id).await
     }
 }

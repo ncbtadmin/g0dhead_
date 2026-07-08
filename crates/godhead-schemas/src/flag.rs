@@ -40,11 +40,12 @@ pub struct FlagDraft {
 }
 
 /// A.3 — the persisted ReadinessFlag: a certification of integrity, not a
-/// done-marker (Law III.2).
+/// done-marker (Law III.2). `job_id` is None only for office-authored
+/// flags (the supervisor's composite barrier certification, doc 3 §3.3).
 #[derive(Debug, Clone)]
 pub struct ReadinessFlag {
     pub flag_id: Uuid,
-    pub job_id: Uuid,
+    pub job_id: Option<Uuid>,
     pub stage: String,
     pub certifies: Certifies,
     pub validator: Validator,

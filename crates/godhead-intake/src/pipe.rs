@@ -131,7 +131,13 @@ impl<'s, S: Store> IntakePipe<'s, S> {
     /// Pre-validation routing only — the successor's read_certified is the
     /// Law III.3 witness check.
     pub async fn node_ref_of(&self, flag: &ReadinessFlag) -> Result<Uuid, IntakeError> {
-        let owner = self.store.get_job(flag.job_id).await?;
+        let flag_job = flag.job_id.ok_or_else(|| {
+            IntakeError::NotFound(format!(
+                "flag {} is office-authored, not a stage flag",
+                flag.flag_id
+            ))
+        })?;
+        let owner = self.store.get_job(flag_job).await?;
         owner.input_refs.first().copied().ok_or_else(|| {
             IntakeError::NotFound(format!("flag {} has no node input_ref", flag.flag_id))
         })

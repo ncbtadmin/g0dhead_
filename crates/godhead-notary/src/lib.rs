@@ -9,8 +9,8 @@
 //! section D.
 
 use godhead_schemas::{
-    AgentType, Budgets, Certifies, FlagDraft, JobStatus, Law, OverrideRecord, RefusalDraft,
-    RefusalReason, SchemaRegistry, Validator,
+    AgentType, Budgets, Certifies, FlagDraft, JobStatus, Law, MatrixRecord, OverrideRecord,
+    RefusalDraft, RefusalReason, SchemaRegistry, Validator,
 };
 use godhead_store::{ArtifactDraft, Store, StoreError};
 use semver::{Version, VersionReq};
@@ -21,6 +21,10 @@ use uuid::Uuid;
 pub const STAGE_GRANT: &str = "notary:grant";
 /// The schema of its output artifact.
 pub const GRANT_RESULT_SCHEMA: &str = "notary.grant_result";
+/// The stage a commitment/amendment/decommission Notary flags.
+pub const STAGE_MATRIX: &str = "notary:matrix";
+/// The schema of its output artifact.
+pub const MATRIX_RESULT_SCHEMA: &str = "notary.matrix_result";
 
 #[derive(Debug, Error)]
 pub enum NotaryError {
@@ -40,6 +44,23 @@ pub fn register_into(registry: &mut SchemaRegistry) {
         |payload| {
             let obj = payload.as_object().ok_or("payload must be an object")?;
             for field in ["petition_id", "override_id", "outcome"] {
+                let value = obj
+                    .get(field)
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| format!("field '{field}' (string) is required"))?;
+                if value.is_empty() {
+                    return Err(format!("field '{field}' must be non-empty"));
+                }
+            }
+            Ok(())
+        },
+    );
+    registry.register(
+        MATRIX_RESULT_SCHEMA,
+        VersionReq::parse("^1.0").expect("valid req"),
+        |payload| {
+            let obj = payload.as_object().ok_or("payload must be an object")?;
+            for field in ["matrix_id", "act", "outcome"] {
                 let value = obj
                     .get(field)
                     .and_then(|v| v.as_str())
@@ -78,10 +99,34 @@ fn notary_draft(petition_id: Uuid) -> godhead_schemas::JobDraft {
     }
 }
 
+/// The Law VII close for a Notary whose labor failed mid-flight: refuse
+/// on the record (best-effort — budget exhaustion was already refused by
+/// the store itself); the job never strands live.
+async fn refuse_notary<S: Store>(store: &S, job_id: Uuid, subject: &str, err: &StoreError) {
+    if matches!(err, StoreError::BudgetExceeded(_)) {
+        return;
+    }
+    let (law, reason) = match err {
+        StoreError::LeaseConflict(_) => (Law::XI, RefusalReason::LeaseConflict),
+        _ => (Law::IV, RefusalReason::ValidationFailed),
+    };
+    let _ = store
+        .refuse(
+            job_id,
+            &RefusalDraft {
+                law,
+                reason,
+                subject_refs: vec![subject.to_string()],
+                detail: format!("notary labor could not complete: {err}"),
+                preserved_refs: vec![],
+            },
+        )
+        .await;
+}
+
 /// One summoning: spawn, validate the chain, apply exactly the granted
-/// change, flag, die. On a chain that does not resolve or a subject that
-/// no longer validates, the Notary refuses per Law VII and the petition
-/// stands GRANTED-unexecuted.
+/// change, flag, die — or refuse (Law VII); the job never strands live and
+/// the petition stands GRANTED-unexecuted for the next summons.
 pub async fn run_grant<S: Store>(
     store: &S,
     petition_id: Uuid,
@@ -94,36 +139,28 @@ pub async fn run_grant<S: Store>(
     let job = store
         .transition_job(job.job_id, job.revision, JobStatus::Running)
         .await?;
-    let lease = store
-        .acquire_lease(job.job_id, petition.subject_ref, 60_000)
-        .await?;
-
-    let successor = match store.execute_grant(job.job_id, petition_id).await {
-        Ok(successor) => successor,
-        Err(defect) => {
-            // Refuse, flag, preserve (Law VII): the refusal releases the
-            // lease and the grant loop stays mechanically open (IV.5).
-            store
-                .refuse(
-                    job.job_id,
-                    &RefusalDraft {
-                        law: Law::IV,
-                        reason: RefusalReason::ValidationFailed,
-                        subject_refs: vec![petition_id.to_string()],
-                        detail: format!("grant execution chain did not validate: {defect}"),
-                        preserved_refs: vec![petition.subject_ref.to_string()],
-                    },
-                )
-                .await?;
-            return Err(NotaryError::Refused(format!(
-                "petition {petition_id}: {defect}"
-            )));
+    match grant_labor(store, job.job_id, petition_id, petition.subject_ref).await {
+        Ok(successor) => Ok(successor),
+        Err(err) => {
+            refuse_notary(store, job.job_id, &petition_id.to_string(), &err).await;
+            Err(NotaryError::Refused(format!(
+                "petition {petition_id}: {err}"
+            )))
         }
-    };
+    }
+}
 
+async fn grant_labor<S: Store>(
+    store: &S,
+    job_id: Uuid,
+    petition_id: Uuid,
+    subject_ref: Uuid,
+) -> Result<OverrideRecord, StoreError> {
+    let lease = store.acquire_lease(job_id, subject_ref, 60_000).await?;
+    let successor = store.execute_grant(job_id, petition_id).await?;
     let artifact = store
         .write_artifact(
-            job.job_id,
+            job_id,
             "result",
             &ArtifactDraft {
                 schema_name: GRANT_RESULT_SCHEMA.to_string(),
@@ -136,13 +173,13 @@ pub async fn run_grant<S: Store>(
             },
         )
         .await?;
-    let job = store.get_job(job.job_id).await?;
+    let job = store.get_job(job_id).await?;
     store
-        .transition_job(job.job_id, job.revision, JobStatus::Written)
+        .transition_job(job_id, job.revision, JobStatus::Written)
         .await?;
     store
         .write_flag(
-            job.job_id,
+            job_id,
             &FlagDraft {
                 stage: STAGE_GRANT.to_string(),
                 certifies: Certifies {
@@ -156,12 +193,132 @@ pub async fn run_grant<S: Store>(
             },
         )
         .await?;
-    store.release_lease(job.job_id, lease.lease_id).await?;
-    let job = store.get_job(job.job_id).await?;
+    store.release_lease(job_id, lease.lease_id).await?;
+    let job = store.get_job(job_id).await?;
     store
-        .transition_job(job.job_id, job.revision, JobStatus::Terminated)
+        .transition_job(job_id, job.revision, JobStatus::Terminated)
         .await?;
     Ok(successor)
+}
+
+/// The shared shape of a matrix-act Notary: spawn on the consent's
+/// summons, lease the matrix, execute the chain-validated store act,
+/// flag, die — any mid-labor failure ends in a Law VII refusal; the job
+/// never strands live.
+async fn run_matrix_act<S, F, Fut>(
+    store: &S,
+    matrix_id: Uuid,
+    act: &str,
+    input_ref: Uuid,
+    execute: F,
+) -> Result<MatrixRecord, NotaryError>
+where
+    S: Store,
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = Result<MatrixRecord, StoreError>>,
+{
+    let job = store.create_job(&notary_draft(input_ref)).await?;
+    let job = store
+        .transition_job(job.job_id, job.revision, JobStatus::Leased)
+        .await?;
+    let job = store
+        .transition_job(job.job_id, job.revision, JobStatus::Running)
+        .await?;
+    match matrix_act_labor(store, job.job_id, matrix_id, act, execute).await {
+        Ok(matrix) => Ok(matrix),
+        Err(err) => {
+            refuse_notary(store, job.job_id, &input_ref.to_string(), &err).await;
+            Err(NotaryError::Refused(format!("{act} {input_ref}: {err}")))
+        }
+    }
+}
+
+async fn matrix_act_labor<S, F, Fut>(
+    store: &S,
+    job_id: Uuid,
+    matrix_id: Uuid,
+    act: &str,
+    execute: F,
+) -> Result<MatrixRecord, StoreError>
+where
+    S: Store,
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = Result<MatrixRecord, StoreError>>,
+{
+    let lease = store.acquire_lease(job_id, matrix_id, 60_000).await?;
+    let matrix = execute(job_id).await?;
+    let artifact = store
+        .write_artifact(
+            job_id,
+            "result",
+            &ArtifactDraft {
+                schema_name: MATRIX_RESULT_SCHEMA.to_string(),
+                schema_version: Version::new(1, 0, 0),
+                payload: serde_json::json!({
+                    "matrix_id": matrix_id.to_string(),
+                    "act": act,
+                    "outcome": matrix.status.as_str(),
+                }),
+            },
+        )
+        .await?;
+    let job = store.get_job(job_id).await?;
+    store
+        .transition_job(job_id, job.revision, JobStatus::Written)
+        .await?;
+    store
+        .write_flag(
+            job_id,
+            &FlagDraft {
+                stage: STAGE_MATRIX.to_string(),
+                certifies: Certifies {
+                    output_slots: vec!["result".to_string()],
+                    revisions: vec![artifact.revision],
+                },
+                validator: Validator {
+                    id: "godhead-notary/registry".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+            },
+        )
+        .await?;
+    store.release_lease(job_id, lease.lease_id).await?;
+    let job = store.get_job(job_id).await?;
+    store
+        .transition_job(job_id, job.revision, JobStatus::Terminated)
+        .await?;
+    Ok(matrix)
+}
+
+/// Executes a consented Joint Proposal (Law VI.3–VI.5): COMMIT professes
+/// the Cardinal, AMEND yields Postulant revision N+1 with exactly the
+/// enumerated changes, REJECT dissolves. Idempotent under retry.
+pub async fn run_matrix_proposal<S: Store>(
+    store: &S,
+    proposal_id: Uuid,
+) -> Result<MatrixRecord, NotaryError> {
+    let proposal = store.get_proposal(proposal_id).await?;
+    run_matrix_act(
+        store,
+        proposal.matrix_ref,
+        "execute_proposal",
+        proposal_id,
+        |job_id| store.execute_matrix_proposal(job_id, proposal_id),
+    )
+    .await
+}
+
+/// Executes a consented decommission (Law VI.5): CARDINAL → DISSOLVED;
+/// the dissolved matrix's links persist — bonds outlive the structure.
+pub async fn run_decommission<S: Store>(
+    store: &S,
+    matrix_id: Uuid,
+    consent_id: Uuid,
+) -> Result<MatrixRecord, NotaryError> {
+    run_matrix_act(store, matrix_id, "decommission", consent_id, |job_id| {
+        store.execute_decommission(job_id, matrix_id, consent_id)
+    })
+    .await
 }
 
 /// The dispatcher rule for consent (doc 3 §3.2 applied to IV.5): every

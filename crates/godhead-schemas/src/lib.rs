@@ -22,6 +22,7 @@ pub mod flag;
 pub mod job;
 pub mod lease;
 pub mod log;
+pub mod matrix;
 pub mod ml;
 pub mod node;
 pub mod refusal;
@@ -35,6 +36,10 @@ pub use flag::{Certifies, FlagDraft, FlagStatus, ReadinessFlag, Validator};
 pub use job::{AgentType, AuditorName, Budgets, JobDraft, JobRecord, JobStatus, Tier};
 pub use lease::LeaseRecord;
 pub use log::{LogEvent, LogSnapshot, Severity};
+pub use matrix::{
+    Amendment, AmendmentKind, AuditReport, AuditReportDraft, AuditorKind, Claim, ClaimSeverity,
+    JointProposal, MatrixRecord, MatrixStatus, ProposalDraft, ReportKind, Verdict,
+};
 pub use ml::{EmbeddingRecord, LinkRecord, LiveWeights, RebalanceState};
 pub use node::{IntakeStatus, NodeDraft, NodeRecord, NormalizeOutcome};
 pub use refusal::{Law, RefusalDraft, RefusalReason, RefusalRecord};

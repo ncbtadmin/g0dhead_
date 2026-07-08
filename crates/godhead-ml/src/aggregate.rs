@@ -1,7 +1,7 @@
 //! The Aggregator's consolidation labor (Dogma Book II §3, steps 1–2 of
 //! three): links from vector proximity, weights per the dial-able mode.
-//! Step 3 — Postulant emergence on threshold crossing — belongs to
-//! section D's slice and is deliberately absent here.
+//! Step 3 — Postulant emergence on threshold crossing — records the
+//! Postulant and writes the audit-eligibility flag (slice 5).
 
 use crate::roster::{Reasoner, Roster};
 use crate::MlError;
@@ -17,8 +17,12 @@ use uuid::Uuid;
 
 /// The stage a consolidation pass flags.
 pub const STAGE_CONSOLIDATE: &str = "aggregator:consolidate";
+/// The audit-eligibility flag written on Postulant emergence (Law VI.2).
+pub const STAGE_AUDIT_ELIGIBLE: &str = "aggregator:audit_eligible";
 /// The schema of its summary artifact.
 pub const CONSOLIDATE_RESULT_SCHEMA: &str = "aggregator.consolidate_result";
+/// The schema of the emergence artifact.
+pub const EMERGENCE_SCHEMA: &str = "aggregator.emergence";
 
 /// What one pass did (returned to the caller and recorded in the artifact).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +30,8 @@ pub struct ConsolidateSummary {
     pub links_touched: usize,
     pub weights_set: usize,
     pub reasoner_calls: usize,
+    /// The Postulant this pass's evaluation recorded, if density crossed.
+    pub emerged: Option<Uuid>,
 }
 
 fn aggregator_draft(scope: &[Uuid], reasoner_alias: Option<&str>) -> godhead_schemas::JobDraft {
@@ -233,7 +239,27 @@ async fn run_pass<S: Store>(
         }
     }
 
-    // Close the lifecycle lawfully: summary artifact, flag, terminate.
+    // Step 3 — the threshold of form (Book II §3, Law VI.2): evaluate
+    // density and, on crossing, record the Postulant. Skipped ONLY when
+    // the sovereign has never set the threshold — no citation, no
+    // evaluation, never a guess (Law VI.1). A transient config-read fault
+    // fails the pass (→ the refusal wrapper), never a silent skip (VII.1).
+    let emerged = match store.get_config("coherence_threshold").await {
+        Ok(_) => {
+            store
+                .emerge_postulant(job_id, category, Some(scope))
+                .await?
+        }
+        Err(StoreError::NotFound(_)) => None,
+        Err(e) => return Err(e.into()),
+    };
+
+    // Close the lifecycle lawfully: artifacts, flags (one FLAG step,
+    // possibly certifying two stages), terminate.
+    let validator = Validator {
+        id: "godhead-ml/registry".to_string(),
+        version: "1.0.0".to_string(),
+    };
     let artifact = store
         .write_artifact(
             job_id,
@@ -251,26 +277,46 @@ async fn run_pass<S: Store>(
             },
         )
         .await?;
+    let mut flag_drafts = vec![FlagDraft {
+        stage: STAGE_CONSOLIDATE.to_string(),
+        certifies: Certifies {
+            output_slots: vec!["result".to_string()],
+            revisions: vec![artifact.revision],
+        },
+        validator: validator.clone(),
+    }];
+    if let Some(matrix) = &emerged {
+        let emergence = store
+            .write_artifact(
+                job_id,
+                "emergence",
+                &ArtifactDraft {
+                    schema_name: EMERGENCE_SCHEMA.to_string(),
+                    schema_version: Version::new(1, 0, 0),
+                    payload: serde_json::json!({
+                        "matrix_id": matrix.matrix_id.to_string(),
+                        "category": category,
+                        "config_rev": matrix.config_rev,
+                    }),
+                },
+            )
+            .await?;
+        // VI.2: the audit-eligibility readiness flag — the flag that opens
+        // the human-invoked audit path.
+        flag_drafts.push(FlagDraft {
+            stage: STAGE_AUDIT_ELIGIBLE.to_string(),
+            certifies: Certifies {
+                output_slots: vec!["emergence".to_string()],
+                revisions: vec![emergence.revision],
+            },
+            validator,
+        });
+    }
     let job = store.get_job(job_id).await?;
     let job = store
         .transition_job(job.job_id, job.revision, JobStatus::Written)
         .await?;
-    store
-        .write_flag(
-            job.job_id,
-            &FlagDraft {
-                stage: STAGE_CONSOLIDATE.to_string(),
-                certifies: Certifies {
-                    output_slots: vec!["result".to_string()],
-                    revisions: vec![artifact.revision],
-                },
-                validator: Validator {
-                    id: "godhead-ml/registry".to_string(),
-                    version: "1.0.0".to_string(),
-                },
-            },
-        )
-        .await?;
+    store.write_flags(job.job_id, &flag_drafts).await?;
     let job = store.get_job(job_id).await?;
     store
         .transition_job(job.job_id, job.revision, JobStatus::Terminated)
@@ -280,5 +326,6 @@ async fn run_pass<S: Store>(
         links_touched,
         weights_set,
         reasoner_calls,
+        emerged: emerged.map(|m| m.matrix_id),
     })
 }

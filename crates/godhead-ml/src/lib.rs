@@ -58,6 +58,19 @@ pub fn register_into(reg: &mut SchemaRegistry) {
             Ok(())
         },
     );
+    reg.register(
+        aggregate::EMERGENCE_SCHEMA,
+        VersionReq::parse("^1.0").expect("valid req"),
+        |payload| {
+            let obj = payload.as_object().ok_or("payload must be an object")?;
+            require_str(obj, "matrix_id")?;
+            require_str(obj, "category")?;
+            if !obj.get("config_rev").is_some_and(serde_json::Value::is_i64) {
+                return Err("field 'config_rev' (integer) is required".into());
+            }
+            Ok(())
+        },
+    );
 }
 
 /// The floor embedder's roster alias.
