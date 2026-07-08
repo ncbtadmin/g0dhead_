@@ -283,10 +283,100 @@ fn teacher_draft(tier: Tier, env: Option<Uuid>) -> JobDraft {
     }
 }
 
+/// How one Instruction labor halted after the job reached RUNNING. Either
+/// way the job ends REFUSED, never stranded live (the established labor
+/// rule); the persisted refusal detail names a clause or a stage — never
+/// the draft's text (Law XV).
+enum LaborHalt {
+    /// VALIDATE_OUT said no — the Instruction is not written.
+    Invalid(LintFailure),
+    /// The store said no mid-labor (a wall at persist, a lost connection).
+    Store {
+        stage: &'static str,
+        source: StoreError,
+    },
+}
+
+/// The labor proper, from RUNNING onward: lint, persist, flag, terminate.
+/// Every `?` in here is a mid-labor halt the caller converts into a Law
+/// VII refusal.
+async fn labor<S: Store>(
+    store: &S,
+    job_id: Uuid,
+    draft: &InstructionDraft,
+) -> Result<InstructionRecord, LaborHalt> {
+    let at = |stage: &'static str| move |source: StoreError| LaborHalt::Store { stage, source };
+
+    // VALIDATE_OUT: the lint is the gate. A failure is a Law VII refusal —
+    // nothing is written.
+    match lint_instruction(store, draft).await.map_err(at("lint"))? {
+        Ok(()) => {}
+        Err(failure) => return Err(LaborHalt::Invalid(failure)),
+    }
+    let instruction = store
+        .persist_instruction(job_id, draft)
+        .await
+        .map_err(at("persist"))?;
+    // The Instruction becomes a flagged (certified, immutable) artifact
+    // while the job still labors — an unflagged Instruction is invisible to
+    // the Student by law (§5.1). This happens before the job's own FLAG.
+    let flagged = store
+        .flag_instruction(job_id, instruction.instruction_id)
+        .await
+        .map_err(at("flag"))?;
+    let out_artifact = store
+        .write_artifact(
+            job_id,
+            "instruction",
+            &godhead_store::ArtifactDraft {
+                schema_name: crate::INSTRUCTION_POINTER_SCHEMA.to_string(),
+                schema_version: Version::new(1, 0, 0),
+                payload: serde_json::json!({ "ref": instruction.instruction_id.to_string() }),
+            },
+        )
+        .await
+        .map_err(at("artifact"))?;
+    let job = store.get_job(job_id).await.map_err(at("artifact"))?;
+    store
+        .transition_job(job_id, job.revision, JobStatus::Written)
+        .await
+        .map_err(at("written"))?;
+    store
+        .write_flag(
+            job_id,
+            &FlagDraft {
+                stage: "teacher:instruction".to_string(),
+                certifies: godhead_schemas::Certifies {
+                    output_slots: vec!["instruction".to_string()],
+                    revisions: vec![out_artifact.revision],
+                },
+                validator: godhead_schemas::Validator {
+                    id: "godhead-concordat/lint".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+            },
+        )
+        .await
+        .map_err(at("job-flag"))?;
+    let job = store.get_job(job_id).await.map_err(at("job-flag"))?;
+    store
+        .transition_job(job_id, job.revision, JobStatus::Terminated)
+        .await
+        .map_err(at("terminate"))?;
+    Ok(flagged)
+}
+
 /// The Teacher's whole labor over one Instruction (VALIDATE_OUT): spawn,
 /// lint, persist, flag, terminate — or a Law VII refusal (the Instruction
-/// is not written). The persisted `skew` mark is derived from the draft's
-/// disclosed sources by the store (B.1). Returns the flagged Instruction.
+/// is not written). Any halt after RUNNING ends in store.refuse — no job
+/// strands live — and a failed refusal write is a hard error, never
+/// swallowed (the slice-6 doctrine, applied here by the slice-9 review).
+/// The persisted `skew` mark is derived from the draft's disclosed sources
+/// by the store (B.1). Returns the flagged Instruction.
+///
+/// A halt AFTER flag_instruction leaves the Instruction certified: it
+/// passed the lint and every store wall, and correction is supersession,
+/// never retraction (§1.4).
 pub async fn write_instruction<S: Store>(
     store: &S,
     draft: &InstructionDraft,
@@ -301,67 +391,43 @@ pub async fn write_instruction<S: Store>(
         .transition_job(job.job_id, job.revision, JobStatus::Running)
         .await?;
 
-    // VALIDATE_OUT: the lint is the gate. A failure is a Law VII refusal —
-    // nothing is written.
-    if let Err(failure) = lint_instruction(store, draft).await? {
-        let _ = store
-            .refuse(
-                job.job_id,
-                &RefusalDraft {
-                    law: Law::II,
-                    reason: RefusalReason::ValidationFailed,
-                    subject_refs: vec![],
-                    detail: format!("Executability Lint {failure}"),
-                    preserved_refs: vec![],
-                },
-            )
-            .await;
-        return Err(ConcordatError::LintFailed(failure.to_string()));
-    }
-
-    let instruction = store.persist_instruction(job.job_id, draft).await?;
-    // The Instruction becomes a flagged (certified, immutable) artifact
-    // while the job still labors — an unflagged Instruction is invisible to
-    // the Student by law (§5.1). This happens before the job's own FLAG.
-    let flagged = store
-        .flag_instruction(job.job_id, instruction.instruction_id)
-        .await?;
-    let out_artifact = store
-        .write_artifact(
+    let halt = match labor(store, job.job_id, draft).await {
+        Ok(flagged) => return Ok(flagged),
+        Err(halt) => halt,
+    };
+    // The persisted detail references the clause or stage and the law
+    // only — never the draft's own text, which is caller-shaped and would
+    // poison the Law XV scan (and with it, the refusal record itself).
+    let (law, detail, err) = match halt {
+        LaborHalt::Invalid(failure) => (
+            Law::II,
+            format!(
+                "Executability Lint failed clause '{}' (§1.3); the emission is not echoed (Law XV)",
+                failure.clause
+            ),
+            ConcordatError::LintFailed(failure.to_string()),
+        ),
+        LaborHalt::Store { stage, source } => (
+            Law::VII,
+            format!(
+                "the Instruction labor halted at stage '{stage}' after RUNNING; the job ends refused, never stranded (Law VII)"
+            ),
+            ConcordatError::Store(source),
+        ),
+    };
+    store
+        .refuse(
             job.job_id,
-            "instruction",
-            &godhead_store::ArtifactDraft {
-                schema_name: crate::INSTRUCTION_POINTER_SCHEMA.to_string(),
-                schema_version: Version::new(1, 0, 0),
-                payload: serde_json::json!({ "ref": instruction.instruction_id.to_string() }),
+            &RefusalDraft {
+                law,
+                reason: RefusalReason::ValidationFailed,
+                subject_refs: vec![],
+                detail,
+                preserved_refs: vec![],
             },
         )
         .await?;
-    let job = store.get_job(job.job_id).await?;
-    store
-        .transition_job(job.job_id, job.revision, JobStatus::Written)
-        .await?;
-    store
-        .write_flag(
-            job.job_id,
-            &FlagDraft {
-                stage: "teacher:instruction".to_string(),
-                certifies: godhead_schemas::Certifies {
-                    output_slots: vec!["instruction".to_string()],
-                    revisions: vec![out_artifact.revision],
-                },
-                validator: godhead_schemas::Validator {
-                    id: "godhead-concordat/lint".to_string(),
-                    version: "1.0.0".to_string(),
-                },
-            },
-        )
-        .await?;
-    let job = store.get_job(job.job_id).await?;
-    store
-        .transition_job(job.job_id, job.revision, JobStatus::Terminated)
-        .await?;
-    Ok(flagged)
+    Err(err)
 }
 
 /// The Student's VALIDATE_IN (§2.3): before executing, re-prove the

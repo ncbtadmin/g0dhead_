@@ -11,7 +11,7 @@ use godhead_schemas::{
     InstructionDraft, JobDraft, JobRecord, JobStatus, SourceDraw, Step, TestableAs, Tier,
 };
 use godhead_scriptorium::establish;
-use godhead_store::{PgStore, Store};
+use godhead_store::{PgStore, Store, StoreError};
 use semver::Version;
 use serde_json::json;
 use std::path::PathBuf;
@@ -632,6 +632,111 @@ async fn empty_validation_id_fails_clause_d() {
         testable_as: TestableAs::Validation(String::new()),
     }];
     assert_clause(&store, &d, 'd').await;
+}
+
+/// Regression (slice-9 review, HIGH — the write_instruction mirror of
+/// `mid_labor_halt_refuses_never_strands`): a store wall firing after
+/// VALIDATE_OUT passes ends the Teacher's job REFUSED with the stage on
+/// record, never stranded RUNNING (Law VII).
+#[tokio::test]
+async fn teacher_mid_labor_halt_refuses_never_strands() {
+    let Some(store) = store().await else { return };
+    let (_m, env, node) = devout_teacher(&store).await;
+
+    // A Devout draft carrying sources_drawn: the lint does not police
+    // disclosure, so VALIDATE_OUT passes — and persist_instruction's B.1
+    // wall (a conferred Teacher carries none) halts the labor mid-flight.
+    let mut d = conforming(env, node);
+    d.sources_drawn = vec![SourceDraw {
+        matrix_ref: Uuid::now_v7(),
+        draw_count: 1,
+        canon_associated: true,
+    }];
+    assert!(
+        lint_instruction(&store, &d)
+            .await
+            .expect("lint runs")
+            .is_ok(),
+        "disclosure is not the lint's clause; the wall is the store's"
+    );
+    let err = write_instruction(&store, &d).await;
+    assert!(
+        matches!(
+            err,
+            Err(ConcordatError::Store(StoreError::ValidationFailed(_)))
+        ),
+        "the wall at persist holds: {err:?}"
+    );
+
+    // The laborer did not strand: REFUSED, the stage on record. The
+    // Teacher job carries its room in input_refs (unique per test).
+    let jobs: Vec<(Uuid, String)> = sqlx::query_as(
+        r#"SELECT job_id, status FROM job_records
+           WHERE input_refs @> jsonb_build_array($1::text)"#,
+    )
+    .bind(env.to_string())
+    .fetch_all(store.raw_pool())
+    .await
+    .expect("jobs");
+    assert!(!jobs.is_empty(), "the labor got its laborer");
+    let halted: Vec<&(Uuid, String)> = jobs.iter().filter(|(_, s)| s != "TERMINATED").collect();
+    assert!(!halted.is_empty(), "the halted labor is visible");
+    for (job_id, status) in &halted {
+        assert_eq!(status, "REFUSED", "job {job_id} must not strand live");
+    }
+    let details: Vec<(String,)> =
+        sqlx::query_as("SELECT detail FROM refusal_records WHERE job_id = $1")
+            .bind(halted[0].0)
+            .fetch_all(store.raw_pool())
+            .await
+            .expect("refusals");
+    assert_eq!(details.len(), 1, "the refusal is on record");
+    assert!(
+        details[0].0.contains("stage 'persist'"),
+        "the stage is named: {}",
+        details[0].0
+    );
+}
+
+/// Regression (slice-9 review, HIGH — the write_instruction mirror of
+/// `refusal_never_echoes_the_draft`): a hostile draft cannot suppress its
+/// own refusal. A secret-shaped semver prerelease rides the version string
+/// into the ephemeral lint detail — the PERSISTED detail names the clause
+/// only, so the Law XV scan passes and the record lands.
+#[tokio::test]
+async fn teacher_refusal_never_echoes_the_draft() {
+    let Some(store) = store().await else { return };
+    let (_m, env, node) = devout_teacher(&store).await;
+
+    let mut hostile = conforming(env, node);
+    hostile.concordat_version = Version::parse("1.0.0-AKIA0123456789ABCDEF").expect("valid semver");
+    let err = write_instruction(&store, &hostile).await;
+    assert!(
+        matches!(err, Err(ConcordatError::LintFailed(_))),
+        "the hostile draft refuses at the lint: {err:?}"
+    );
+
+    // The refusal record LANDED — clause-referencing, echo-free.
+    let details: Vec<(String,)> = sqlx::query_as(
+        r#"SELECT r.detail FROM refusal_records r
+             JOIN job_records j ON j.job_id = r.job_id
+           WHERE j.input_refs @> jsonb_build_array($1::text)"#,
+    )
+    .bind(env.to_string())
+    .fetch_all(store.raw_pool())
+    .await
+    .expect("refusals");
+    assert_eq!(details.len(), 1, "the refusal is on record");
+    assert!(
+        details[0].0.contains("clause 'b'"),
+        "the clause is named: {}",
+        details[0].0
+    );
+    assert!(
+        !details[0].0.contains("AKIA"),
+        "the emission is never echoed: {}",
+        details[0].0
+    );
 }
 
 /// Regression (slice-8 review, MEDIUM/spec): `skew` is derived from the

@@ -232,3 +232,15 @@ resolution stays ownership-blind like the rest of its resolution set
 (round-1 fix #5's convergence); multiple Returns per instruction is the
 pinned correction path; a halt AFTER flag_return leaves the Return
 certified — it passed every wall, and correction is a fresh Return.
+
+Cross-slice repair (round 2, #2/#3 mirrored): slice-8's committed
+`write_instruction` carried the same defect pair the review confirmed in
+`write_return` — mid-labor halts stranded the Teacher's job RUNNING, and
+`let _ = store.refuse(...)` let a hostile draft (secret-shaped semver in
+the echoed lint detail) suppress its own refusal. The same halt handler
+now runs there: any failure after RUNNING ends in store.refuse with a
+clause/stage-only detail, and refusal errors propagate. Regressions:
+`teacher_mid_labor_halt_refuses_never_strands`,
+`teacher_refusal_never_echoes_the_draft` (k_concordat.rs). The remaining
+`let _ = refuse` sites (audit, notary, ml) predate the labor rule and are
+tracked as slice-10 debt, not silently blessed.
