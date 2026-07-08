@@ -30,6 +30,7 @@ pub mod node;
 pub mod refusal;
 pub mod registry;
 pub mod sovereignty;
+pub mod student;
 
 pub use config::{ConfigConstant, ConfigTier};
 pub use envelope::Envelope;
@@ -57,6 +58,9 @@ pub use registry::{SchemaRegistry, SchemaSpec, ValidatorFn};
 pub use sovereignty::{
     ConsentDecision, ConsentRecord, ConsentScope, OverrideBasis, OverrideKind, OverrideRecord,
     PetitionDraft, PetitionRecord, PetitionStatus,
+};
+pub use student::{
+    CompletionEntry, RefinedArtifact, ReturnDraft, ReturnItem, ReturnItemKind, ReturnManifest,
 };
 
 /// The schema version of the slice-1 record types themselves.

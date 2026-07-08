@@ -518,6 +518,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "godhead-student"
+version = "0.1.0"
+dependencies = [
+ "godhead-concordat",
+ "godhead-intake",
+ "godhead-ml",
+ "godhead-schemas",
+ "godhead-scriptorium",
+ "godhead-store",
+ "semver",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "godhead-toolcall"
 version = "0.1.0"
 dependencies = [

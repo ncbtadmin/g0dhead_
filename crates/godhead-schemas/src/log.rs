@@ -37,6 +37,8 @@ closed_enum! {
         InstructionFlagged => "INSTRUCTION_FLAGGED",
         ConcordatAdopted => "CONCORDAT_ADOPTED",
         BiasWarning => "BIAS_WARNING",
+        ReturnFlagged => "RETURN_FLAGGED",
+        Refined => "REFINED",
     }
 }
 

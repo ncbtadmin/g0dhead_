@@ -11,8 +11,8 @@ use godhead_schemas::{
     LiveWeights, LogEvent, LogSnapshot, MatrixRecord, MatrixStatus, NodeDraft, NodeRecord,
     NormalizeOutcome, OverrideBasis, OverrideKind, OverrideRecord, PairingKind, PairingRecord,
     PetitionDraft, PetitionRecord, PetitionStatus, ProposalDraft, ReadinessFlag, RebalanceState,
-    RefusalDraft, RefusalReason, RefusalRecord, ReportKind, SchemaRegistry, Severity, SourceDraw,
-    Tier, Verdict, RECORD_SCHEMA_VERSION,
+    RefinedArtifact, RefusalDraft, RefusalReason, RefusalRecord, ReportKind, ReturnDraft,
+    ReturnManifest, SchemaRegistry, Severity, SourceDraw, Tier, Verdict, RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -616,6 +616,36 @@ impl PgStore {
             revision: row.try_get("revision")?,
             changed_at: row.try_get("changed_at")?,
             changed_by: row.try_get("changed_by")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn return_from_row(row: &PgRow) -> Result<ReturnManifest, StoreError> {
+        let concordat_version: String = row.try_get("concordat_version")?;
+        Ok(ReturnManifest {
+            return_id: row.try_get("return_id")?,
+            instruction_ref: row.try_get("instruction_ref")?,
+            student_env_ref: row.try_get("student_env_ref")?,
+            concordat_version: Version::parse(&concordat_version).map_err(|e| {
+                StoreError::ValidationFailed(format!("stored concordat_version: {e}"))
+            })?,
+            items: row.try_get("items")?,
+            completion: row.try_get("completion")?,
+            flagged: row.try_get("flagged")?,
+            revision: row.try_get("revision")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn refined_artifact_from_row(row: &PgRow) -> Result<RefinedArtifact, StoreError> {
+        let source_refs: serde_json::Value = row.try_get("source_refs")?;
+        Ok(RefinedArtifact {
+            artifact_id: row.try_get("artifact_id")?,
+            env_ref: row.try_get("env_ref")?,
+            source_refs: Self::uuid_vec(&source_refs, "source_refs")?,
+            method: row.try_get("method")?,
+            content_sha: row.try_get("content_sha")?,
+            revision: row.try_get("revision")?,
             envelope: Self::envelope_from_row(row)?,
         })
     }
@@ -3565,11 +3595,16 @@ impl Store for PgStore {
             }
         }
         // SC-G01/G06: every item resolves and its chain walks root-to-leaf.
+        // Slice 9 adds refined artifacts and Returns as first-class records
+        // a scriptorium lawfully elects — the mount must know them, or a
+        // room publishing its own product becomes unmountable.
         for item in self.env_items(env_id).await? {
             let resolves: bool = sqlx::query_scalar(
                 r#"SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = $1)
                     OR EXISTS(SELECT 1 FROM links WHERE link_id = $1)
-                    OR EXISTS(SELECT 1 FROM artifacts WHERE job_id = $1)"#,
+                    OR EXISTS(SELECT 1 FROM artifacts WHERE job_id = $1)
+                    OR EXISTS(SELECT 1 FROM refined_artifacts WHERE artifact_id = $1)
+                    OR EXISTS(SELECT 1 FROM returns WHERE return_id = $1)"#,
             )
             .bind(item.item_ref)
             .fetch_one(&self.pool)
@@ -4073,6 +4108,319 @@ impl Store for PgStore {
         .await?;
         Ok(())
     }
+
+    async fn persist_return(
+        &self,
+        job_id: Uuid,
+        draft: &ReturnDraft,
+    ) -> Result<ReturnManifest, StoreError> {
+        let job = self.guard_actor(job_id, "persist_return", false).await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "a Return is written during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if job.agent_type != AgentType::Student {
+            return Err(StoreError::ValidationFailed(format!(
+                "only a Student writes Returns, not {} (Student Handbook §1)",
+                job.agent_type
+            )));
+        }
+        // The answered Instruction must resolve and be certified — an
+        // unflagged Instruction is invisible to the Student (§5.1), so no
+        // Return can answer one.
+        let instruction = self.get_instruction(draft.instruction_ref).await?;
+        if !instruction.flagged {
+            return Err(StoreError::ValidationFailed(
+                "the answered Instruction is not flagged; unflagged means uncertified (§5.1)"
+                    .into(),
+            ));
+        }
+        // B.2: a Return rises from a Student's room.
+        let env = self.get_environment(draft.student_env_ref).await?;
+        if env.kind != EnvKind::Student {
+            return Err(StoreError::ValidationFailed(format!(
+                "student_env_ref names a {} environment; a Return rises from a Student's room (B.2)",
+                env.kind
+            )));
+        }
+        if env.status != EnvStatus::Live {
+            return Err(StoreError::ValidationFailed(format!(
+                "environment {} is {}; an archived room takes no new work (A.8)",
+                draft.student_env_ref, env.status
+            )));
+        }
+        // IX.4: the writing job must be bound to the room the Return
+        // rises from — an agent cannot answer from a room by naming it.
+        if job.env_ref != Some(draft.student_env_ref) {
+            return Err(StoreError::ValidationFailed(format!(
+                "job {job_id} is not bound to environment {}; a Return rises from the job's own room (Law IX.4)",
+                draft.student_env_ref
+            )));
+        }
+        // B.1: the Instruction was linted against target_tier's capability
+        // table; a room of another tier answers a contract that never
+        // bound it.
+        if env.tier != instruction.target_tier {
+            return Err(StoreError::ValidationFailed(format!(
+                "the Return rises from a {} room; the Instruction binds {} (B.1)",
+                env.tier, instruction.target_tier
+            )));
+        }
+        // X.5: a conferred Teacher's Instruction is answered across the
+        // pairing bridge; an unpaired room has no standing to answer. A
+        // Regular Teacher has no room, so nothing to pair against.
+        if let Some(teacher_env) = instruction.teacher_env_ref {
+            let paired: bool = sqlx::query_scalar(
+                r#"SELECT EXISTS(SELECT 1 FROM pairings
+                     WHERE teacher_env_ref = $1 AND student_env_ref = $2)"#,
+            )
+            .bind(teacher_env)
+            .bind(draft.student_env_ref)
+            .fetch_one(&self.pool)
+            .await?;
+            if !paired {
+                return Err(StoreError::ValidationFailed(format!(
+                    "no pairing binds room {} to the Instruction's teacher room {teacher_env} (X.5)",
+                    draft.student_env_ref
+                )));
+            }
+        }
+        // B.2: every returned item carries real provenance — the nil floor,
+        // mirroring the evidence rule. (Item resolution is the Deacon's
+        // threshold, section I.)
+        for (i, item) in draft.items.iter().enumerate() {
+            if item.item_ref.is_nil() || item.provenance_ref.is_nil() {
+                return Err(StoreError::ValidationFailed(format!(
+                    "item {i} carries a nil ref; a Return hands back things that exist (B.2)"
+                )));
+            }
+        }
+        // B.2: the completion contract, criterion by criterion, against the
+        // answered Instruction's stored acceptance_criteria.
+        validate_completion_contract(&instruction.acceptance_criteria, &draft.completion)?;
+        let items = serialize_items(&draft.items);
+        let completion = serialize_completion(&draft.completion);
+        let row = sqlx::query(
+            r#"INSERT INTO returns
+                 (return_id, instruction_ref, student_env_ref, concordat_version,
+                  items, completion, schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, 'ReturnManifest', $7, $8::text)
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(draft.instruction_ref)
+        .bind(draft.student_env_ref)
+        .bind(draft.concordat_version.to_string())
+        .bind(items)
+        .bind(completion)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Self::return_from_row(&row)
+    }
+
+    async fn flag_return(
+        &self,
+        job_id: Uuid,
+        return_id: Uuid,
+    ) -> Result<ReturnManifest, StoreError> {
+        // Certification is the trust boundary of the Return: only the
+        // RUNNING Student job bound to the Return's own room flags it —
+        // the same three walls persist_return holds (Law IX.4).
+        let job = self.guard_actor(job_id, "flag_return", false).await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "a Return is certified during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if job.agent_type != AgentType::Student {
+            return Err(StoreError::ValidationFailed(format!(
+                "only a Student certifies Returns, not {} (Student Handbook §3.1)",
+                job.agent_type
+            )));
+        }
+        let existing = self.get_return(return_id).await?;
+        if job.env_ref != Some(existing.student_env_ref) {
+            return Err(StoreError::ValidationFailed(format!(
+                "job {job_id} is not bound to the Return's room {}; certification rises from the job's own room (Law IX.4)",
+                existing.student_env_ref
+            )));
+        }
+        let row = sqlx::query(
+            r#"UPDATE returns SET flagged = true, revision = revision + 1
+               WHERE return_id = $1 AND NOT flagged
+               RETURNING *"#,
+        )
+        .bind(return_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        // Already flagged: idempotent read-back, but no second
+        // RETURN_FLAGGED event — the log testifies one certification.
+        let Some(row) = row else {
+            return self.get_return(return_id).await;
+        };
+        let record = Self::return_from_row(&row)?;
+        self.append_log(
+            &return_id.to_string(),
+            LogEvent::ReturnFlagged,
+            &serde_json::json!({ "instruction_ref": record.instruction_ref.to_string() }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Ok(record)
+    }
+
+    async fn get_return(&self, return_id: Uuid) -> Result<ReturnManifest, StoreError> {
+        let row = sqlx::query("SELECT * FROM returns WHERE return_id = $1")
+            .bind(return_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such return {return_id}")))?;
+        Self::return_from_row(&row)
+    }
+
+    async fn persist_refined_artifact(
+        &self,
+        job_id: Uuid,
+        env_ref: Uuid,
+        source_refs: &[Uuid],
+        method: &str,
+        content_sha: &str,
+    ) -> Result<RefinedArtifact, StoreError> {
+        let job = self
+            .guard_actor(job_id, "persist_refined_artifact", false)
+            .await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "a refinement is recorded during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if job.agent_type != AgentType::Student {
+            return Err(StoreError::ValidationFailed(format!(
+                "refinement is Student stewardship, not {}'s (Handbook §1.2)",
+                job.agent_type
+            )));
+        }
+        if source_refs.is_empty() {
+            return Err(StoreError::ValidationFailed(
+                "a refinement over nothing is debris; the derivation names its sources (§1.2b)"
+                    .into(),
+            ));
+        }
+        // The method is a short token, not free text: it is persisted and
+        // echoed into the append-only log, so agent-shaped prose (or a
+        // secret-shaped string) must never fit through it (Law XV).
+        if method.is_empty()
+            || method.len() > 64
+            || !method
+                .bytes()
+                .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'@' | b'.' | b'-' | b'_'))
+        {
+            return Err(StoreError::ValidationFailed(
+                "the derivation names its method as a token of [a-z0-9@.-_], at most 64 chars (§1.2b, Law XV)"
+                    .into(),
+            ));
+        }
+        if content_sha.len() != 64
+            || !content_sha
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err(StoreError::ValidationFailed(
+                "content_sha must be 64 lowercase hex chars (SHA-256)".into(),
+            ));
+        }
+        let env = self.get_environment(env_ref).await?;
+        if env.kind != EnvKind::Student {
+            return Err(StoreError::ValidationFailed(format!(
+                "refined artifacts land in a Student's scriptorium, not a {} room (§1.2)",
+                env.kind
+            )));
+        }
+        if env.status != EnvStatus::Live {
+            return Err(StoreError::ValidationFailed(format!(
+                "environment {env_ref} is {}; an archived room takes no new work (A.8)",
+                env.status
+            )));
+        }
+        // IX.4: the refining job must be bound to the room it writes into —
+        // an unbound job naming a victim's room would leave permanent,
+        // unremovable debris there (no_delete stands on the record).
+        if job.env_ref != Some(env_ref) {
+            return Err(StoreError::ValidationFailed(format!(
+                "job {job_id} is not bound to environment {env_ref}; refinement lands in the job's own room (Law IX.4)"
+            )));
+        }
+        // Source resolution is deliberately NOT proven here: the closure
+        // walk (Handbook §1.2c) is the detector for a dangling derivation
+        // ref — debris is found by verification, not silently prevented
+        // into unfindability.
+        let refs = serde_json::Value::Array(
+            source_refs
+                .iter()
+                .map(|u| serde_json::Value::String(u.to_string()))
+                .collect(),
+        );
+        let row = sqlx::query(
+            r#"INSERT INTO refined_artifacts
+                 (artifact_id, env_ref, source_refs, method, content_sha,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, 'RefinedArtifact', $6, $7::text)
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(env_ref)
+        .bind(refs)
+        .bind(method)
+        .bind(content_sha)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let record = Self::refined_artifact_from_row(&row)?;
+        self.append_log(
+            &record.artifact_id.to_string(),
+            LogEvent::Refined,
+            &serde_json::json!({
+                "env_ref": env_ref.to_string(),
+                "method": method,
+                "content_sha": content_sha,
+            }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Ok(record)
+    }
+
+    async fn get_refined_artifact(&self, artifact_id: Uuid) -> Result<RefinedArtifact, StoreError> {
+        let row = sqlx::query("SELECT * FROM refined_artifacts WHERE artifact_id = $1")
+            .bind(artifact_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| {
+                StoreError::NotFound(format!("no such refined artifact {artifact_id}"))
+            })?;
+        Self::refined_artifact_from_row(&row)
+    }
+
+    async fn refined_artifacts_in(
+        &self,
+        env_ref: Uuid,
+    ) -> Result<Vec<RefinedArtifact>, StoreError> {
+        let rows =
+            sqlx::query("SELECT * FROM refined_artifacts WHERE env_ref = $1 ORDER BY produced_at")
+                .bind(env_ref)
+                .fetch_all(&self.pool)
+                .await?;
+        rows.iter().map(Self::refined_artifact_from_row).collect()
+    }
 }
 
 fn serialize_steps(steps: &[godhead_schemas::Step]) -> serde_json::Value {
@@ -4119,4 +4467,104 @@ fn serialize_sources(sources: &[SourceDraw]) -> serde_json::Value {
             })
             .collect(),
     )
+}
+
+fn serialize_items(items: &[godhead_schemas::ReturnItem]) -> serde_json::Value {
+    serde_json::Value::Array(
+        items
+            .iter()
+            .map(|i| {
+                serde_json::json!({
+                    "item_ref": i.item_ref.to_string(),
+                    "kind": i.kind.as_str(),
+                    "provenance_ref": i.provenance_ref.to_string(),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn serialize_completion(entries: &[godhead_schemas::CompletionEntry]) -> serde_json::Value {
+    serde_json::Value::Array(
+        entries
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "criterion_index": e.criterion_index,
+                    "passed": e.passed,
+                    "evidence_ref": e.evidence_ref.to_string(),
+                })
+            })
+            .collect(),
+    )
+}
+
+/// The B.2 completion contract, proven against the answered Instruction's
+/// stored acceptance_criteria: indices 0..n each answered exactly once
+/// (missing/extra/duplicate invalidate); evidence mandatory in every case;
+/// `passed` is None iff the criterion is SOVEREIGN_JUDGMENT (§1.3d). A
+/// malformed stored criterion fails loudly — never a silent skip (the
+/// slice-8 lesson: a check is only as good as the inputs it inspects).
+fn validate_completion_contract(
+    criteria: &serde_json::Value,
+    completion: &[godhead_schemas::CompletionEntry],
+) -> Result<(), StoreError> {
+    let criteria = criteria.as_array().ok_or_else(|| {
+        StoreError::ValidationFailed("stored acceptance_criteria is not an array".into())
+    })?;
+    let n = criteria.len();
+    if completion.len() != n {
+        return Err(StoreError::ValidationFailed(format!(
+            "completion carries {} entries for {n} criteria — the contract is exactly one each (B.2)",
+            completion.len()
+        )));
+    }
+    let mut seen = vec![false; n];
+    for entry in completion {
+        let Ok(idx) = usize::try_from(entry.criterion_index) else {
+            return Err(StoreError::ValidationFailed(format!(
+                "criterion_index {} names no criterion (B.2)",
+                entry.criterion_index
+            )));
+        };
+        if idx >= n {
+            return Err(StoreError::ValidationFailed(format!(
+                "criterion_index {idx} is beyond the Instruction's {n} criteria (B.2)"
+            )));
+        }
+        if seen[idx] {
+            return Err(StoreError::ValidationFailed(format!(
+                "criterion {idx} is answered twice; the contract is exactly one entry each (B.2)"
+            )));
+        }
+        seen[idx] = true;
+        if entry.evidence_ref.is_nil() {
+            return Err(StoreError::ValidationFailed(format!(
+                "criterion {idx} carries a nil evidence_ref; evidence is mandatory in every case (B.2)"
+            )));
+        }
+        let testable_as = criteria[idx]
+            .get("testable_as")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                StoreError::ValidationFailed(format!(
+                    "stored criterion {idx} carries no testable_as; a malformed criterion never passes silently"
+                ))
+            })?;
+        let sovereign = testable_as == "SOVEREIGN_JUDGMENT";
+        match (sovereign, entry.passed) {
+            (true, Some(_)) => {
+                return Err(StoreError::ValidationFailed(format!(
+                    "criterion {idx} is SOVEREIGN_JUDGMENT; its verdict is the sovereign's to render, not the Student's (§1.3d)"
+                )));
+            }
+            (false, None) => {
+                return Err(StoreError::ValidationFailed(format!(
+                    "criterion {idx} is machine-checkable; the Student renders a verdict (B.2)"
+                )));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }

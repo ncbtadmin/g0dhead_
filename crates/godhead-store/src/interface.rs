@@ -6,7 +6,8 @@ use godhead_schemas::{
     InstructionRecord, JobDraft, JobRecord, JobStatus, JointProposal, LeaseRecord, LinkRecord,
     LiveWeights, LogEvent, LogSnapshot, MatrixRecord, NodeDraft, NodeRecord, NormalizeOutcome,
     OverrideRecord, PairingKind, PairingRecord, PetitionDraft, PetitionRecord, ProposalDraft,
-    ReadinessFlag, RebalanceState, RefusalDraft, RefusalRecord, Severity, SourceDraw, Tier,
+    ReadinessFlag, RebalanceState, RefinedArtifact, RefusalDraft, RefusalRecord, ReturnDraft,
+    ReturnManifest, Severity, SourceDraw, Tier,
 };
 use semver::Version;
 use uuid::Uuid;
@@ -612,4 +613,42 @@ pub trait Store {
         scope: &str,
         acknowledge: bool,
     ) -> Result<(), StoreError>;
+
+    // -- Student returns & stewardship (Student Handbook §1, §3) --
+
+    /// Persists a ReturnManifest (unflagged). Validates the completion
+    /// contract (B.2) against the answered Instruction's acceptance
+    /// criteria: exactly one completion entry per criterion (missing/extra
+    /// invalidate); evidence mandatory in every case; `passed` is None iff
+    /// the criterion is SOVEREIGN_JUDGMENT.
+    async fn persist_return(
+        &self,
+        job_id: Uuid,
+        draft: &ReturnDraft,
+    ) -> Result<ReturnManifest, StoreError>;
+
+    /// FLAG the Return (Student's VALIDATE_OUT passed): flagged, immutable.
+    async fn flag_return(
+        &self,
+        job_id: Uuid,
+        return_id: Uuid,
+    ) -> Result<ReturnManifest, StoreError>;
+
+    async fn get_return(&self, return_id: Uuid) -> Result<ReturnManifest, StoreError>;
+
+    /// Records a refined artifact with its derivation (source refs +
+    /// method) and the reproducible content_sha (Handbook §1.2b).
+    async fn persist_refined_artifact(
+        &self,
+        job_id: Uuid,
+        env_ref: Uuid,
+        source_refs: &[Uuid],
+        method: &str,
+        content_sha: &str,
+    ) -> Result<RefinedArtifact, StoreError>;
+
+    async fn get_refined_artifact(&self, artifact_id: Uuid) -> Result<RefinedArtifact, StoreError>;
+
+    async fn refined_artifacts_in(&self, env_ref: Uuid)
+        -> Result<Vec<RefinedArtifact>, StoreError>;
 }
