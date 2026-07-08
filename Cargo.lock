@@ -410,6 +410,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "godhead-concordat"
+version = "0.1.0"
+dependencies = [
+ "godhead-intake",
+ "godhead-ml",
+ "godhead-schemas",
+ "godhead-scriptorium",
+ "godhead-store",
+ "semver",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "godhead-intake"
 version = "0.1.0"
 dependencies = [

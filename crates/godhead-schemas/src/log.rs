@@ -34,6 +34,9 @@ closed_enum! {
         EnvEstablished => "ENV_ESTABLISHED",
         EnvOrphaned => "ENV_ORPHANED",
         PairingFormed => "PAIRING_FORMED",
+        InstructionFlagged => "INSTRUCTION_FLAGGED",
+        ConcordatAdopted => "CONCORDAT_ADOPTED",
+        BiasWarning => "BIAS_WARNING",
     }
 }
 

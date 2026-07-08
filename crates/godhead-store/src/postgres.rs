@@ -4,14 +4,15 @@ use crate::secrets;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
     roman_ordinal, roster_index, AgentType, AmendmentKind, AuditReport, AuditReportDraft,
-    AuditorKind, AuditorName, Budgets, Claim, ConfigConstant, ConfigTier, ConsentDecision,
-    ConsentRecord, ConsentScope, EmbeddingRecord, EnvItem, EnvKind, EnvStatus, Envelope,
-    EnvironmentRecord, FlagDraft, FlagStatus, IntakeStatus, JobDraft, JobRecord, JobStatus,
-    JointProposal, Law, LeaseRecord, LinkRecord, LiveWeights, LogEvent, LogSnapshot, MatrixRecord,
-    MatrixStatus, NodeDraft, NodeRecord, NormalizeOutcome, OverrideBasis, OverrideKind,
-    OverrideRecord, PairingKind, PairingRecord, PetitionDraft, PetitionRecord, PetitionStatus,
-    ProposalDraft, ReadinessFlag, RebalanceState, RefusalDraft, RefusalReason, RefusalRecord,
-    ReportKind, SchemaRegistry, Severity, Tier, Verdict, RECORD_SCHEMA_VERSION,
+    AuditorKind, AuditorName, Budgets, Claim, ConcordatArtifact, ConfigConstant, ConfigTier,
+    ConsentDecision, ConsentRecord, ConsentScope, EmbeddingRecord, EnvItem, EnvKind, EnvStatus,
+    Envelope, EnvironmentRecord, FlagDraft, FlagStatus, InstructionDraft, InstructionRecord,
+    IntakeStatus, JobDraft, JobRecord, JobStatus, JointProposal, Law, LeaseRecord, LinkRecord,
+    LiveWeights, LogEvent, LogSnapshot, MatrixRecord, MatrixStatus, NodeDraft, NodeRecord,
+    NormalizeOutcome, OverrideBasis, OverrideKind, OverrideRecord, PairingKind, PairingRecord,
+    PetitionDraft, PetitionRecord, PetitionStatus, ProposalDraft, ReadinessFlag, RebalanceState,
+    RefusalDraft, RefusalReason, RefusalRecord, ReportKind, SchemaRegistry, Severity, SourceDraw,
+    Tier, Verdict, RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -445,6 +446,44 @@ impl PgStore {
             student_env_ref: row.try_get("student_env_ref")?,
             matrix_ref: row.try_get("matrix_ref")?,
             formed_at: row.try_get("formed_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn instruction_from_row(row: &PgRow) -> Result<InstructionRecord, StoreError> {
+        let teacher_tier: String = row.try_get("teacher_tier")?;
+        let target_tier: String = row.try_get("target_tier")?;
+        let concordat_version: String = row.try_get("concordat_version")?;
+        Ok(InstructionRecord {
+            instruction_id: row.try_get("instruction_id")?,
+            teacher_env_ref: row.try_get("teacher_env_ref")?,
+            teacher_tier: Tier::parse(&teacher_tier).map_err(StoreError::from_schema)?,
+            target_tier: Tier::parse(&target_tier).map_err(StoreError::from_schema)?,
+            concordat_version: Version::parse(&concordat_version).map_err(|e| {
+                StoreError::ValidationFailed(format!("stored concordat_version: {e}"))
+            })?,
+            objective: row.try_get("objective")?,
+            steps: row.try_get("steps")?,
+            acceptance_criteria: row.try_get("acceptance_criteria")?,
+            sources_drawn: row.try_get("sources_drawn")?,
+            skew: row.try_get("skew")?,
+            supersedes_ref: row.try_get("supersedes_ref")?,
+            flagged: row.try_get("flagged")?,
+            revision: row.try_get("revision")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn concordat_from_row(row: &PgRow) -> Result<ConcordatArtifact, StoreError> {
+        let version: String = row.try_get("version")?;
+        Ok(ConcordatArtifact {
+            version: Version::parse(&version).map_err(|e| {
+                StoreError::ValidationFailed(format!("stored concordat version: {e}"))
+            })?,
+            capability_tables: row.try_get("capability_tables")?,
+            pairing_semantics: row.try_get("pairing_semantics")?,
+            adopted_at: row.try_get("adopted_at")?,
+            adopted_by: row.try_get("adopted_by")?,
             envelope: Self::envelope_from_row(row)?,
         })
     }
@@ -2331,6 +2370,15 @@ impl Store for PgStore {
         rows.iter().map(Self::link_from_row).collect()
     }
 
+    async fn get_link(&self, link_id: Uuid) -> Result<LinkRecord, StoreError> {
+        let row = sqlx::query("SELECT * FROM links WHERE link_id = $1")
+            .bind(link_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such link {link_id}")))?;
+        Self::link_from_row(&row)
+    }
+
     async fn set_link_weight(
         &self,
         job_id: Uuid,
@@ -3729,4 +3777,346 @@ impl Store for PgStore {
         .await?;
         Ok(record)
     }
+
+    async fn adopt_concordat(
+        &self,
+        actor: &str,
+        version: &Version,
+        capability_tables: &serde_json::Value,
+        pairing_semantics: &serde_json::Value,
+    ) -> Result<ConcordatArtifact, StoreError> {
+        // Every version is retained forever (§3.3): adopting a version that
+        // already exists is refused rather than overwriting it.
+        let row = sqlx::query(
+            r#"INSERT INTO concordat_artifacts
+                 (version, capability_tables, pairing_semantics, adopted_by,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, 'ConcordatArtifact', $5, $4)
+               ON CONFLICT (version) DO NOTHING
+               RETURNING *"#,
+        )
+        .bind(version.to_string())
+        .bind(capability_tables)
+        .bind(pairing_semantics)
+        .bind(actor)
+        .bind(RECORD_SCHEMA_VERSION)
+        .fetch_optional(&self.pool)
+        .await?;
+        let concordat = match row {
+            Some(row) => Self::concordat_from_row(&row)?,
+            None => {
+                return Err(StoreError::ValidationFailed(format!(
+                    "Concordat {version} is already adopted; every version is retained, never rewritten (§3.3)"
+                )))
+            }
+        };
+        self.append_log(
+            &format!("concordat:{version}"),
+            LogEvent::ConcordatAdopted,
+            &serde_json::json!({ "version": version.to_string(), "adopted_by": actor }),
+            Severity::Info,
+            actor,
+        )
+        .await?;
+        Ok(concordat)
+    }
+
+    async fn get_concordat(&self, version: &Version) -> Result<ConcordatArtifact, StoreError> {
+        let row = sqlx::query("SELECT * FROM concordat_artifacts WHERE version = $1")
+            .bind(version.to_string())
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::SchemaMismatch(format!("no Concordat version {version}")))?;
+        Self::concordat_from_row(&row)
+    }
+
+    async fn persist_instruction(
+        &self,
+        job_id: Uuid,
+        draft: &InstructionDraft,
+    ) -> Result<InstructionRecord, StoreError> {
+        let job = self
+            .guard_actor(job_id, "persist_instruction", false)
+            .await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "an Instruction is written during WORK, not {} (Law I.1)",
+                job.status
+            )));
+        }
+        if job.agent_type != AgentType::Teacher {
+            return Err(StoreError::ValidationFailed(format!(
+                "only a Teacher writes Instructions, not {} (Holy Standard §1)",
+                job.agent_type
+            )));
+        }
+        // B.1: sources_drawn is required iff teacher_tier REGULAR — both
+        // directions (§6.3). A Regular output must disclose; a conferred
+        // Teacher carries none.
+        if draft.teacher_tier == Tier::Regular && draft.sources_drawn.is_empty() {
+            return Err(StoreError::ValidationFailed(
+                "a Regular Teacher output must carry sources_drawn (Holy Standard §6.3)".into(),
+            ));
+        }
+        if draft.teacher_tier != Tier::Regular && !draft.sources_drawn.is_empty() {
+            return Err(StoreError::ValidationFailed(
+                "sources_drawn is a Regular-Teacher disclosure; a conferred Teacher carries none (B.1)".into(),
+            ));
+        }
+        // skew is DERIVED, never trusted from a caller (B.1): the
+        // canon-associated share of disclosed draws exceeds
+        // bias_skew_threshold (§6.3).
+        let skew_threshold = self
+            .get_config("bias_skew_threshold")
+            .await?
+            .value
+            .as_f64()
+            .unwrap_or(0.50);
+        let total: i64 = draft
+            .sources_drawn
+            .iter()
+            .map(|s| s.draw_count.max(0))
+            .sum();
+        let canon: i64 = draft
+            .sources_drawn
+            .iter()
+            .filter(|s| s.canon_associated)
+            .map(|s| s.draw_count.max(0))
+            .sum();
+        #[allow(clippy::cast_precision_loss)] // draw counts are small
+        let skew = total > 0 && (canon as f64 / total as f64) > skew_threshold;
+        // A Devout/Canon Teacher works from an environment; a Regular does
+        // not (B.1: teacher_env_ref null for Regulars).
+        match draft.teacher_tier {
+            Tier::Regular if draft.teacher_env_ref.is_some() => {
+                return Err(StoreError::ValidationFailed(
+                    "a Regular Teacher establishes no environment (X.1)".into(),
+                ))
+            }
+            Tier::Devout | Tier::Canon if draft.teacher_env_ref.is_none() => {
+                return Err(StoreError::ValidationFailed(
+                    "a conferred Teacher writes from its environment (B.1)".into(),
+                ))
+            }
+            _ => {}
+        }
+        // The supersedes target, if any, must resolve.
+        if let Some(prior) = draft.supersedes_ref {
+            self.get_instruction(prior).await?;
+        }
+        let steps = serialize_steps(&draft.steps);
+        let criteria = serialize_criteria(&draft.acceptance_criteria);
+        let sources = serialize_sources(&draft.sources_drawn);
+        let row = sqlx::query(
+            r#"INSERT INTO instructions
+                 (instruction_id, teacher_env_ref, teacher_tier, target_tier, concordat_version,
+                  objective, steps, acceptance_criteria, sources_drawn, skew, supersedes_ref,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'InstructionRecord', $12, $13::text)
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(draft.teacher_env_ref)
+        .bind(draft.teacher_tier.as_str())
+        .bind(draft.target_tier.as_str())
+        .bind(draft.concordat_version.to_string())
+        .bind(&draft.objective)
+        .bind(steps)
+        .bind(criteria)
+        .bind(sources)
+        .bind(skew)
+        .bind(draft.supersedes_ref)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Self::instruction_from_row(&row)
+    }
+
+    async fn flag_instruction(
+        &self,
+        job_id: Uuid,
+        instruction_id: Uuid,
+    ) -> Result<InstructionRecord, StoreError> {
+        self.guard_actor(job_id, "flag_instruction", false).await?;
+        let row = sqlx::query(
+            r#"UPDATE instructions SET flagged = true, revision = revision + 1
+               WHERE instruction_id = $1 AND NOT flagged
+               RETURNING *"#,
+        )
+        .bind(instruction_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let record = match row {
+            Some(row) => Self::instruction_from_row(&row)?,
+            None => self.get_instruction(instruction_id).await?, // already flagged
+        };
+        self.append_log(
+            &instruction_id.to_string(),
+            LogEvent::InstructionFlagged,
+            &serde_json::json!({ "target_tier": record.target_tier.as_str() }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Ok(record)
+    }
+
+    async fn get_instruction(&self, instruction_id: Uuid) -> Result<InstructionRecord, StoreError> {
+        let row = sqlx::query("SELECT * FROM instructions WHERE instruction_id = $1")
+            .bind(instruction_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such instruction {instruction_id}")))?;
+        Self::instruction_from_row(&row)
+    }
+
+    async fn record_regular_output(
+        &self,
+        instruction_ref: Uuid,
+        sources: &[SourceDraw],
+        skew: bool,
+        window: i64,
+    ) -> Result<f64, StoreError> {
+        sqlx::query(
+            r#"INSERT INTO regular_outputs
+                 (output_id, instruction_ref, sources_drawn, skew,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, 'RegularOutput', $5, 'store')"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(instruction_ref)
+        .bind(serialize_sources(sources))
+        .bind(skew)
+        .bind(RECORD_SCHEMA_VERSION)
+        .execute(&self.pool)
+        .await?;
+        // The trailing-window skew share (§6.3): of the last `window`
+        // Regular outputs, what fraction are skewed.
+        let share: Option<f64> = sqlx::query_scalar(
+            r#"SELECT avg(CASE WHEN skew THEN 1.0 ELSE 0.0 END)::float8
+               FROM (SELECT skew FROM regular_outputs ORDER BY produced_at DESC LIMIT $1) w"#,
+        )
+        .bind(window)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(share.unwrap_or(0.0))
+    }
+
+    async fn bias_warning_state(&self, scope: &str) -> Result<Option<String>, StoreError> {
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM bias_warnings WHERE scope = $1")
+                .bind(scope)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(status)
+    }
+
+    async fn raise_bias_warning(&self, scope: &str) -> Result<(), StoreError> {
+        // Raise iff none stands: a SILENCED scope is not re-raised until
+        // lifted; a STANDING one keeps counting without a second raise.
+        let inserted = sqlx::query(
+            r#"INSERT INTO bias_warnings
+                 (scope, schema_name, schema_version, produced_by)
+               VALUES ($1, 'BiasWarning', $2, 'store')
+               ON CONFLICT (scope) DO NOTHING"#,
+        )
+        .bind(scope)
+        .bind(RECORD_SCHEMA_VERSION)
+        .execute(&self.pool)
+        .await?;
+        if inserted.rows_affected() > 0 {
+            self.append_log(
+                &format!("bias:{scope}"),
+                LogEvent::BiasWarning,
+                &serde_json::json!({ "scope": scope, "status": "STANDING" }),
+                Severity::Warning,
+                "store",
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn resolve_bias_warning(
+        &self,
+        actor: &str,
+        scope: &str,
+        acknowledge: bool,
+    ) -> Result<(), StoreError> {
+        let (status, severity) = if acknowledge {
+            ("ACKNOWLEDGED", Severity::Warning)
+        } else {
+            ("SILENCED", Severity::Suppressed)
+        };
+        let updated = sqlx::query(
+            r#"UPDATE bias_warnings
+               SET status = $2, resolved_at = now(), revision = revision + 1
+               WHERE scope = $1"#,
+        )
+        .bind(scope)
+        .bind(status)
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(StoreError::NotFound(format!(
+                "no standing bias warning for scope '{scope}'"
+            )));
+        }
+        self.append_log(
+            &format!("bias:{scope}"),
+            LogEvent::BiasWarning,
+            &serde_json::json!({ "scope": scope, "status": status, "by": actor }),
+            severity,
+            actor,
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+fn serialize_steps(steps: &[godhead_schemas::Step]) -> serde_json::Value {
+    serde_json::Value::Array(
+        steps
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "step_id": s.step_id,
+                    "action": s.action.as_str(),
+                    "params": s.params,
+                    "expected_output": s.expected_output,
+                    "budget_hint_tokens": s.budget_hint_tokens,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn serialize_criteria(criteria: &[godhead_schemas::AcceptanceCriterion]) -> serde_json::Value {
+    serde_json::Value::Array(
+        criteria
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "criterion": c.criterion,
+                    "testable_as": c.testable_as.as_stored(),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn serialize_sources(sources: &[SourceDraw]) -> serde_json::Value {
+    serde_json::Value::Array(
+        sources
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "matrix_ref": s.matrix_ref.to_string(),
+                    "draw_count": s.draw_count,
+                    "canon_associated": s.canon_associated,
+                })
+            })
+            .collect(),
+    )
 }

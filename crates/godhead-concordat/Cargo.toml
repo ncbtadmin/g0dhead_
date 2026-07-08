@@ -1,0 +1,24 @@
+[package]
+name = "godhead-concordat"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+godhead-schemas = { path = "../godhead-schemas" }
+godhead-store = { path = "../godhead-store" }
+serde_json.workspace = true
+uuid.workspace = true
+semver.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+godhead-intake = { path = "../godhead-intake" }
+godhead-ml = { path = "../godhead-ml" }
+godhead-scriptorium = { path = "../godhead-scriptorium" }
+tokio.workspace = true
+sqlx.workspace = true
+
+[lints]
+workspace = true

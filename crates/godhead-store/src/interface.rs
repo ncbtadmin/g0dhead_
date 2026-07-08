@@ -1,13 +1,14 @@
 use crate::error::StoreError;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
-    AuditReport, AuditReportDraft, ConfigConstant, ConfigTier, ConsentDecision, EmbeddingRecord,
-    EnvItem, EnvKind, EnvironmentRecord, FlagDraft, FlagStatus, JobDraft, JobRecord, JobStatus,
-    JointProposal, LeaseRecord, LinkRecord, LiveWeights, LogEvent, LogSnapshot, MatrixRecord,
-    NodeDraft, NodeRecord, NormalizeOutcome, OverrideRecord, PairingKind, PairingRecord,
-    PetitionDraft, PetitionRecord, ProposalDraft, ReadinessFlag, RebalanceState, RefusalDraft,
-    RefusalRecord, Severity, Tier,
+    AuditReport, AuditReportDraft, ConcordatArtifact, ConfigConstant, ConfigTier, ConsentDecision,
+    EmbeddingRecord, EnvItem, EnvKind, EnvironmentRecord, FlagDraft, FlagStatus, InstructionDraft,
+    InstructionRecord, JobDraft, JobRecord, JobStatus, JointProposal, LeaseRecord, LinkRecord,
+    LiveWeights, LogEvent, LogSnapshot, MatrixRecord, NodeDraft, NodeRecord, NormalizeOutcome,
+    OverrideRecord, PairingKind, PairingRecord, PetitionDraft, PetitionRecord, ProposalDraft,
+    ReadinessFlag, RebalanceState, RefusalDraft, RefusalRecord, Severity, SourceDraw, Tier,
 };
+use semver::Version;
 use uuid::Uuid;
 
 /// The single abstracted store interface (doc 3 §1.1) — the sole surface
@@ -313,6 +314,10 @@ pub trait Store {
         scope: Option<&[Uuid]>,
     ) -> Result<Vec<LinkRecord>, StoreError>;
 
+    /// A single link by id — a link is a first-class store object (doc 3
+    /// §2.3); resolution checks (lint a) need to resolve one.
+    async fn get_link(&self, link_id: Uuid) -> Result<LinkRecord, StoreError>;
+
     /// CAS weight write; an overridden link refuses OVERRIDE_CONFLICT —
     /// recalculation works around fixed stars (Handbook §4.5).
     async fn set_link_weight(
@@ -545,4 +550,66 @@ pub trait Store {
     /// LIVE → ORPHANED: the dependency is lost; the room becomes a
     /// read-only archive (A.8).
     async fn orphan_environment(&self, env_id: Uuid) -> Result<EnvironmentRecord, StoreError>;
+
+    // -- the Concordat & Instructions (Holy Standard §1, §3) --
+
+    /// Adopts a Concordat version (human/sovereign — A.14 test (b)). Every
+    /// version ever adopted is retained forever (§3.3).
+    async fn adopt_concordat(
+        &self,
+        actor: &str,
+        version: &Version,
+        capability_tables: &serde_json::Value,
+        pairing_semantics: &serde_json::Value,
+    ) -> Result<ConcordatArtifact, StoreError>;
+
+    async fn get_concordat(&self, version: &Version) -> Result<ConcordatArtifact, StoreError>;
+
+    /// Persists an Instruction body (unflagged). The lint runs in the
+    /// concordat crate before this; here the store validates B.1 shape and
+    /// the supersedes chain. `skew` is DERIVED from `sources_drawn` against
+    /// `bias_skew_threshold` (B.1: skew is derived, §6.3) — never trusted
+    /// from a caller.
+    async fn persist_instruction(
+        &self,
+        job_id: Uuid,
+        draft: &InstructionDraft,
+    ) -> Result<InstructionRecord, StoreError>;
+
+    /// FLAG the Instruction (Teacher's VALIDATE_OUT passed): sets it
+    /// flagged and immutable. Idempotent.
+    async fn flag_instruction(
+        &self,
+        job_id: Uuid,
+        instruction_id: Uuid,
+    ) -> Result<InstructionRecord, StoreError>;
+
+    async fn get_instruction(&self, instruction_id: Uuid) -> Result<InstructionRecord, StoreError>;
+
+    /// Records a Regular Teacher output's bias disclosure (§6.3): the
+    /// draws and the computed skew. Returns the trailing-window skew share
+    /// after this output, for the escalation decision.
+    async fn record_regular_output(
+        &self,
+        instruction_ref: Uuid,
+        sources: &[SourceDraw],
+        skew: bool,
+        window: i64,
+    ) -> Result<f64, StoreError>;
+
+    async fn bias_warning_state(&self, scope: &str) -> Result<Option<String>, StoreError>;
+
+    /// Raises the standing warning for a scope if none stands (idempotent);
+    /// logs BIAS_WARNING.
+    async fn raise_bias_warning(&self, scope: &str) -> Result<(), StoreError>;
+
+    /// The terminal answer (§6.3): `acknowledge` keeps it standing and
+    /// counting; `silence` suppresses it (logged severity: suppressed),
+    /// not re-raised until lifted.
+    async fn resolve_bias_warning(
+        &self,
+        actor: &str,
+        scope: &str,
+        acknowledge: bool,
+    ) -> Result<(), StoreError>;
 }

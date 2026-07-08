@@ -20,6 +20,7 @@ pub mod envelope;
 pub mod environment;
 pub mod error;
 pub mod flag;
+pub mod instruction;
 pub mod job;
 pub mod lease;
 pub mod log;
@@ -38,6 +39,10 @@ pub use environment::{
 };
 pub use error::SchemaError;
 pub use flag::{Certifies, FlagDraft, FlagStatus, ReadinessFlag, Validator};
+pub use instruction::{
+    AcceptanceCriterion, CapabilityAction, ConcordatArtifact, InstructionDraft, InstructionRecord,
+    SourceDraw, Step, TestableAs,
+};
 pub use job::{AgentType, AuditorName, Budgets, JobDraft, JobRecord, JobStatus, Tier};
 pub use lease::LeaseRecord;
 pub use log::{LogEvent, LogSnapshot, Severity};
