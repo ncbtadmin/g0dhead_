@@ -7,7 +7,7 @@
 
 use crate::ConcordatError;
 use godhead_schemas::SourceDraw;
-use godhead_store::Store;
+use godhead_store::{Store, StoreError};
 
 /// The single v1 bias pattern scope.
 pub const BIAS_SCOPE: &str = "regular_teacher_bias";
@@ -41,24 +41,34 @@ pub async fn disclose_regular_output<S: Store>(
     instruction_ref: uuid::Uuid,
     sources: &[SourceDraw],
 ) -> Result<(bool, bool), ConcordatError> {
+    // A malformed sovereign constant refuses, never a fabricated default —
+    // a threshold the sovereign never set is a decision the sovereign never
+    // made (Law II.2), and a bias detector guessing its own threshold is a
+    // legibility failure inside the legibility module.
     let skew_threshold = store
         .get_config("bias_skew_threshold")
         .await?
         .value
         .as_f64()
-        .unwrap_or(0.50);
+        .ok_or_else(|| {
+            StoreError::ValidationFailed("bias_skew_threshold is not a number (A.14)".into())
+        })?;
     let window = store
         .get_config("bias_pattern_window")
         .await?
         .value
         .as_i64()
-        .unwrap_or(20);
+        .ok_or_else(|| {
+            StoreError::ValidationFailed("bias_pattern_window is not an integer (A.14)".into())
+        })?;
     let pattern_threshold = store
         .get_config("bias_pattern_threshold")
         .await?
         .value
         .as_f64()
-        .unwrap_or(0.60);
+        .ok_or_else(|| {
+            StoreError::ValidationFailed("bias_pattern_threshold is not a number (A.14)".into())
+        })?;
 
     let skewed = compute_skew(sources, skew_threshold);
     let share = store

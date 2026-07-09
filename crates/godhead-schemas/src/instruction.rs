@@ -128,6 +128,14 @@ pub struct InstructionRecord {
     pub envelope: Envelope,
 }
 
+/// The Concordat range every agent in this build declares (§2.4): additive
+/// changes bump minor, breaking changes bump major; skew in either
+/// direction is refused, never best-effort. One fact, one definition — the
+/// Teacher's end and the Student's end both cite this const, so the two
+/// validators cannot silently drift apart (§5: the contract is a
+/// referenceable artifact, not tribal knowledge).
+pub const SUPPORTED_CONCORDAT: &str = "^1.0";
+
 /// B.4 — the Concordat: the versioned Teacher↔Student contract. Every
 /// version ever cited is retained forever (§3.3).
 #[derive(Debug, Clone)]

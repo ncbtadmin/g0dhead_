@@ -805,3 +805,82 @@ async fn skew_is_derived_and_sources_are_regular_only() {
     let err = write_instruction(&store, &devout).await;
     assert!(err.is_err(), "a conferred Teacher carries no sources_drawn");
 }
+
+/// Hardening (external review [3]): a field that no longer parses fails
+/// reconstruction loudly — a corrupted budget must not read back as 0 and
+/// trivially pass clause (e).
+#[tokio::test]
+async fn corrupted_budget_fails_reconstruction_loudly() {
+    let Some(store) = store().await else { return };
+    let (_m, env, node) = devout_teacher(&store).await;
+    let flagged = write_instruction(&store, &conforming(env, node))
+        .await
+        .expect("write");
+
+    // Corrupt budget_hint_tokens to a string out-of-band, bypassing the
+    // immutability trigger (defense in depth, the SC-K04 pattern).
+    sqlx::query("ALTER TABLE instructions DISABLE TRIGGER instruction_immutable")
+        .execute(store.raw_pool())
+        .await
+        .expect("disable trigger");
+    sqlx::query(
+        r#"UPDATE instructions
+           SET steps = jsonb_build_array(jsonb_build_object(
+               'step_id', 1, 'action', 'REFINE', 'params', '{}'::jsonb,
+               'expected_output', 'x@1.0', 'budget_hint_tokens', 'a great many'))
+           WHERE instruction_id = $1"#,
+    )
+    .bind(flagged.instruction_id)
+    .execute(store.raw_pool())
+    .await
+    .expect("corrupt");
+    sqlx::query("ALTER TABLE instructions ENABLE TRIGGER instruction_immutable")
+        .execute(store.raw_pool())
+        .await
+        .expect("re-enable trigger");
+
+    let reader = student_job(&store).await;
+    let err = read_instruction(&store, reader.job_id, flagged.instruction_id).await;
+    assert!(
+        matches!(err, Err(ConcordatError::SchemaMismatch(_))),
+        "an unparseable budget fails reconstruction, never reads as 0"
+    );
+}
+
+/// Hardening (external review [2]): a present-but-malformed sovereign
+/// constant refuses — a fabricated default threshold would be a decision
+/// the sovereign never made (Law II.2).
+#[tokio::test]
+async fn malformed_bias_config_refuses_never_guesses() {
+    let Some(store) = store().await else { return };
+    // Malform the constant out-of-band and restore it immediately below —
+    // the window is kept minimal because the parallel bias tests read the
+    // same row (the sc_k07 caveat).
+    sqlx::query(
+        r#"UPDATE config_constants SET value = '"half"'::jsonb
+           WHERE key = 'bias_skew_threshold'"#,
+    )
+    .execute(store.raw_pool())
+    .await
+    .expect("malform");
+    let sources = vec![SourceDraw {
+        matrix_ref: Uuid::now_v7(),
+        draw_count: 1,
+        canon_associated: true,
+    }];
+    let err = disclose_regular_output(&store, Uuid::now_v7(), &sources).await;
+    sqlx::query(
+        r#"UPDATE config_constants SET value = '0.50'::jsonb
+           WHERE key = 'bias_skew_threshold'"#,
+    )
+    .execute(store.raw_pool())
+    .await
+    .expect("restore");
+    assert!(
+        matches!(
+            err,
+            Err(ConcordatError::Store(StoreError::ValidationFailed(_)))
+        ),
+        "a malformed threshold refuses; it is never guessed"
+    );
+}

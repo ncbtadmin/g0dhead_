@@ -42,7 +42,7 @@ pub use error::SchemaError;
 pub use flag::{Certifies, FlagDraft, FlagStatus, ReadinessFlag, Validator};
 pub use instruction::{
     AcceptanceCriterion, CapabilityAction, ConcordatArtifact, InstructionDraft, InstructionRecord,
-    SourceDraw, Step, TestableAs,
+    SourceDraw, Step, TestableAs, SUPPORTED_CONCORDAT,
 };
 pub use job::{AgentType, AuditorName, Budgets, JobDraft, JobRecord, JobStatus, Tier};
 pub use lease::LeaseRecord;

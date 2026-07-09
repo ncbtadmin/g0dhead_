@@ -22,8 +22,10 @@ pub use returns::{validate_return, write_return, ReturnFailure};
 pub use steward::{steward_consolidate, ConsolidationReport};
 
 /// The Student's declared Concordat range (§2.4): skew in either direction
-/// is refused at this end, never best-effort.
-pub const SUPPORTED_CONCORDAT: &str = "^1.0";
+/// is refused at this end, never best-effort. One definition, owned by
+/// godhead-schemas — the same fact the Teacher's end cites, so the two
+/// validators cannot silently drift apart (§5).
+pub use godhead_schemas::SUPPORTED_CONCORDAT;
 
 /// The schema of the flagged return-pointer artifact.
 pub const RETURN_POINTER_SCHEMA: &str = "student.return_pointer";

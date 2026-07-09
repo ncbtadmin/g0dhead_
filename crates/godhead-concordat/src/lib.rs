@@ -18,9 +18,10 @@ use thiserror::Error;
 pub use bias::{compute_skew, disclose_regular_output, BIAS_SCOPE};
 pub use lint::{lint_instruction, read_instruction, write_instruction, LintFailure};
 
-/// The v1 supported Concordat range every agent declares (§2.4): additive
-/// changes bump minor, breaking changes bump major; skew is refused.
-pub const SUPPORTED_CONCORDAT: &str = "^1.0";
+/// The supported Concordat range (§2.4) — one definition, owned by
+/// godhead-schemas, so the Teacher's end and the Student's end cannot
+/// silently drift apart (§5).
+pub use godhead_schemas::SUPPORTED_CONCORDAT;
 
 /// The schema of the flagged instruction-pointer artifact.
 pub const INSTRUCTION_POINTER_SCHEMA: &str = "concordat.instruction_pointer";

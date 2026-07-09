@@ -434,8 +434,9 @@ pub async fn write_instruction<S: Store>(
 /// Instruction. Concordat-version skew in either direction is a
 /// SCHEMA_MISMATCH refusal (§2.4); an out-of-band corruption of the
 /// schema-shape (steps, criteria, objective, budget) between flag and read
-/// fails the re-lint. The same versioned artifact is validated twice, by
-/// two strangers who never meet. (Access across the pairing bridge is
+/// fails loudly — at reconstruction if a field no longer parses, at the
+/// re-lint if the parsed body no longer proves. The same versioned
+/// artifact is validated twice, by two strangers who never meet. (Access across the pairing bridge is
 /// governed separately by `env_scoped_read` — Law IX.5; this is the
 /// content re-proof, and callers compose the two.)
 pub async fn read_instruction<S: Store>(
@@ -477,7 +478,9 @@ pub async fn read_instruction<S: Store>(
 }
 
 /// Rebuilds a lintable draft from a persisted Instruction, for the
-/// Student's re-validation.
+/// Student's re-validation. Every field is required to parse back whole:
+/// a silent default would hand a corrupted field a lawful disguise, so an
+/// unparseable one is a SchemaMismatch, never a guess.
 fn reconstruct_draft(rec: &InstructionRecord) -> Result<InstructionDraft, ConcordatError> {
     let steps = rec
         .steps
@@ -490,24 +493,34 @@ fn reconstruct_draft(rec: &InstructionRecord) -> Result<InstructionDraft, Concor
                 .and_then(|v| v.as_str())
                 .and_then(|a| CapabilityAction::parse(a).ok())
                 .ok_or_else(|| ConcordatError::SchemaMismatch("step action invalid".into()))?;
+            // Every field persist wrote must read back whole; a default
+            // here would let a corrupted field impersonate a lawful one
+            // (a budget read as 0 trivially passes clause e). Unparseable
+            // → SchemaMismatch, loudly.
             Ok(godhead_schemas::Step {
-                step_id: i32::try_from(
-                    s.get("step_id")
-                        .and_then(serde_json::Value::as_i64)
-                        .unwrap_or(-1),
-                )
-                .unwrap_or(-1),
+                step_id: s
+                    .get("step_id")
+                    .and_then(serde_json::Value::as_i64)
+                    .and_then(|v| i32::try_from(v).ok())
+                    .ok_or_else(|| ConcordatError::SchemaMismatch("step step_id invalid".into()))?,
                 action,
-                params: s.get("params").cloned().unwrap_or(serde_json::Value::Null),
+                params: s
+                    .get("params")
+                    .cloned()
+                    .ok_or_else(|| ConcordatError::SchemaMismatch("step params missing".into()))?,
                 expected_output: s
                     .get("expected_output")
                     .and_then(|v| v.as_str())
-                    .unwrap_or_default()
+                    .ok_or_else(|| {
+                        ConcordatError::SchemaMismatch("step expected_output invalid".into())
+                    })?
                     .to_string(),
                 budget_hint_tokens: s
                     .get("budget_hint_tokens")
                     .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(0),
+                    .ok_or_else(|| {
+                        ConcordatError::SchemaMismatch("step budget_hint_tokens invalid".into())
+                    })?,
             })
         })
         .collect::<Result<Vec<_>, ConcordatError>>()?;
@@ -516,19 +529,23 @@ fn reconstruct_draft(rec: &InstructionRecord) -> Result<InstructionDraft, Concor
         .as_array()
         .ok_or_else(|| ConcordatError::SchemaMismatch("criteria not an array".into()))?
         .iter()
-        .map(|c| godhead_schemas::AcceptanceCriterion {
-            criterion: c
-                .get("criterion")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            testable_as: TestableAs::parse_stored(
-                c.get("testable_as")
+        .map(|c| {
+            Ok(godhead_schemas::AcceptanceCriterion {
+                criterion: c
+                    .get("criterion")
                     .and_then(|v| v.as_str())
-                    .unwrap_or_default(),
-            ),
+                    .ok_or_else(|| ConcordatError::SchemaMismatch("criterion invalid".into()))?
+                    .to_string(),
+                testable_as: TestableAs::parse_stored(
+                    c.get("testable_as")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            ConcordatError::SchemaMismatch("criterion testable_as invalid".into())
+                        })?,
+                ),
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, ConcordatError>>()?;
     Ok(InstructionDraft {
         teacher_env_ref: rec.teacher_env_ref,
         teacher_tier: rec.teacher_tier,
