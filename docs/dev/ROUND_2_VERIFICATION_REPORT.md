@@ -130,3 +130,78 @@ that decays.
 **Frozen pending the sheet's return:** all code, all migrations, all Cargo.*,
 Slice 10's spec. The no-HTTP rule holds (verified again this round: no outward
 transport anywhere in the dependency tree).
+
+---
+
+## 7. Addendum, 2026-07-09 — the sheet returned; the flickering provenance file
+
+The instance that wrote §§1–6 was lost before the answered sheet reached it; this
+addendum is its successor's, written after verifying the inheritance first-hand
+(rulings hash `f8630c6f…` reproduced; sweep re-run against HEAD, byte-identical
+after BOM/EOL normalization; no-HTTP wall re-verified across all twelve Cargo
+files). The S1–S9 sheet returned answered via PROMPT_I v2: S1 adopted, S2 → Slice
+10 (C.4 severable to 11 only if the budget breaks), S3 adopted, S4 adopted whole,
+S5 adopted plus the untracked-conversation ruling, S6 adopted, S7 ratified, S8
+spent, S9 commit-with-the-batch. The S5 batch lands in the commit carrying this
+addendum.
+
+**The flickering provenance file (R1).** During the evening of 2026-07-08 the
+working copy of `docs/_history/07_student_handbook.md` — the directive brief,
+8,932 bytes, blob `dffc483f` at HEAD — read, through one observer, as a ~9 KB
+ratified-v1.0 fragment (blob `62c2487f…`) and later read as the brief again;
+a six-lens disk investigation (all ten CLI transcripts, all eighteen desktop-app
+audit logs, the NTFS USN journal, the git object store, an AppData census, and a
+blob brute-force) resolves it as follows. The fragment's content is identified
+byte-exactly: this instance reproduced `62c2487f1ab89a7a7d73964ad7c422b0a9803823`
+by hashing the first 8,932 bytes of the ratified `docs/07_student_handbook.md` —
+the sibling document truncated at precisely the brief's file length. Every
+sighting of the flicker was made from inside the Claude-desktop (Cowork) VM's
+bridged view of the repo, whose stat during the flicker served the *canonical*
+file's mtime (Jul 7 13:19:12.5817948, tick-identical at 100 ns) under the
+`_history` path — while the host file's true mtime (Jul 7 11:51:07.3026349) was
+and is untouched. The NTFS USN journal settles the writer question: the host
+file object has received **no journaled operation of any kind since the Jul 7
+promotion** (last-USN pointer bracketed by write-once git objects; FileId
+stable; creation time intact; parent-directory swaps likewise excluded; the
+blob was never persisted to the object store), and no transcript or audit log
+anywhere contains a write to the path or a restore-capable command. Conclusion:
+**the flicker was a read-layer artifact of the desktop-app VM's file-sharing
+bridge** — it served the same-basename sibling's content and metadata under the
+`_history` path, clamped at the stale 8,932-byte directory entry — and the
+"revert" was cache invalidation when the VM cycled; there was no writer, and
+the provenance file on the host was never altered. The briefed candidates are
+each exculpated for the flicker itself (the project-knowledge cache syncs into
+AppData and holds no handbook copy; no backup/AV artifact exists and Defender's
+only window activity was a 6:15 AM definition update; no editor session at
+either bound). The evening's genuine out-of-session writes are separately
+accounted for: `docs/_history/original spec development chat/` was created
+6:46–6:47 PM by extraction of a `files.zip` (recovered from the Recycle Bin,
+deleted 6:47:24 PM; contents exactly the four conversation files, no handbook;
+the folder's creation stamps carry a UTC-rendered-as-local artifact typical of
+the exporting tool), and `PROMPT_G_RULINGS.md` was the Cowork author-instance's
+documented single Write at 7:24 PM. One residue is recorded rather than smoothed
+over: `docs/00_read_before_development.md` took exactly one journaled but
+timestamp-invisible operation USN-bracketed to 5:02–6:46 PM Jul 8 (content
+matched HEAD throughout, so the operation was metadata-class or
+content-restored); its pre-edit USN witness was overwritten minutes after
+capture by this addendum's own S5 edits and survives only in the investigation
+transcript — and the incident-era journal records themselves have rolled out of
+the 32 MB journal, so no deeper replay is possible even elevated. The handoff's
+two extra expected-status entries dissolve under the same lens: the expected
+status was the Cowork observer's own 2:34 PM view through its VM bridge, one
+minute before it authored the handoff — `?? .claude/` because that
+environment's git does not read the user's global ignore
+(`**/.claude/settings.local.json`, in force since 7/1; the census proved
+`.claude/` never held anything non-ignored), and `M docs/dev/CRITERIA_SWEEP.md`
+of the same served-view class: not reproducible under the host's git four
+minutes later, where the working copy round-trips byte-identical to the
+committed blob with its generation-time mtime (8:00:10 PM) intact. Current-good
+state: `docs/_history/07_student_handbook.md` is byte-identical to HEAD
+(`dffc483f` reproduced first-hand), and the tree at this instance's boot matched
+the predecessor's recorded final state exactly. Proposed guard, not implemented:
+extend `docs/_history/PROVENANCE.md` to also list the three tracked briefs'
+hashes, giving any future instance a one-command sweep against the manifest —
+a hash check reads content through whatever lens is doing the looking, so it
+catches both a real rewrite and a served-content illusion of this incident's
+kind, which `git status` catches only while it lasts and a directory listing
+cannot catch at all.

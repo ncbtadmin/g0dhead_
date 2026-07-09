@@ -2,3 +2,8 @@
 .env
 **/.env
 *.env.local
+
+# The origin conversation is preserved in the working tree but never rides a clone
+# or a push (sovereign decision S5, 2026-07-09) — personal + operational strings.
+# Its byte counts and sha256 hashes are recorded in docs/_history/PROVENANCE.md.
+docs/_history/original spec development chat/

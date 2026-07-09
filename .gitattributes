@@ -1,0 +1,5 @@
+# Hash-contracted artifacts are stored and checked out byte-exact (no EOL
+# normalization): the recorded sha256 must reproduce on any clone, any config.
+# PROMPT_G_RULINGS.md as delivered = 28,838 bytes,
+# sha256 f8630c6fbd6c6a1a7532cc6f323e65b91435cd9a5ed4e957770078c860ab89c0.
+docs/dev/PROMPT_G_RULINGS.md -text

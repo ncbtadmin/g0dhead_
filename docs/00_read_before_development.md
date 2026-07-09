@@ -29,7 +29,7 @@ Documents 5–7 were originally **mandates to Fable** — briefs naming every do
 5. `05_central_dogma.md` — the constitution binding all agents. Supreme governing document.
 6. `06_holy_standard.md` — the Teacher manual.
 7. `07_student_handbook.md` — the Student manual.
-8. `08_phase_b_success_criteria.md` — the testable spec: ninety citable assertions Phase B builds and tests against.
+8. `08_phase_b_success_criteria.md` — the testable spec: the citable assertions Phase B builds and tests against. The file is the count; no count is kept in prose.
 
 ---
 
@@ -52,11 +52,12 @@ Work happens in **two phases**. **Phase A is complete** (2026-07-07); a reader i
 This is where you and the user finish the specification together. No code is written in this phase and no infrastructure is stood up. The whole document set and the reasoning behind it live here, which is why the authoring work belongs here. Your job in Phase A is to turn the mandate documents into finished, gapless specification and to decompose the priority architecture into verifiable success criteria (see §5).
 
 **Phase B — Build (later, in the Claude Code CLI).**
-Once the specification is settled, work moves to the CLI for implementation. The build phase follows the **dev-pipeline discipline** — scope is pinned before implementation, and no code is handed over unverified. That discipline applies in Phase B, with **three project-specific overrides** to observe when you get there:
+Once the specification is settled, work moves to the CLI for implementation. The build phase follows the **dev-pipeline discipline** — scope is pinned before implementation, and no code is handed over unverified. That discipline applies in Phase B, with **project-specific overrides** to observe when you get there:
 
 1. **Language is Rust.** The dev-pipeline skill defaults to C/C++ and does not list Rust; on this project, Rust is the chosen language (for speed and for memory safety across many concurrent ephemeral workers). Where local model execution requires libraries Rust lacks, the model layer is reached through a separate inference server over a local endpoint — see the ML pipe.
 2. **The spec is this `docs/` set, not a single `SPEC.md`.** The dev-pipeline discipline expects one small spec file; this project's scope is distributed across these eight documents. Treat them collectively as the spec.
 3. **The verification gate uses the Rust toolchain** (`cargo test`, `cargo clippy`, `cargo fmt --check`) rather than the skill's gcc/pytest/node gate. Warnings are fixed, not shipped.
+4. **Execution locus is the host.** Phase B runs in the Claude Code CLI on the operator's machine against live Railway Postgres; the skill's sandbox-only rule and the operator's standing "never run locally" preference are superseded for this project by this override.
 
 Do not invoke the dev-pipeline build gate during Phase A — there is nothing to gate yet. It governs Phase B.
 
@@ -70,7 +71,7 @@ Do not invoke the dev-pipeline build gate during Phase A — there is nothing to
 
 ## 5. First Deliverable (Phase A — complete; Phase B begins here)
 
-Phase A's charge is fulfilled: whole-system understanding was confirmed and every surfaced contradiction resolved by amendment (each amended document carries a terminal ledger); the Central Dogma, Holy Standard, and Student Handbook are authored and ratified in place; and the priority architecture is decomposed into `08_phase_b_success_criteria.md` — ninety citable assertions, with adversarial emphasis on tool-calling (section F) and the Mandate Rule (section J) by sovereign directive.
+Phase A's charge is fulfilled: whole-system understanding was confirmed and every surfaced contradiction resolved by amendment (each amended document carries a terminal ledger); the Central Dogma, Holy Standard, and Student Handbook are authored and ratified in place; and the priority architecture is decomposed into `08_phase_b_success_criteria.md` — citable assertions with adversarial emphasis on tool-calling (section F) and the Mandate Rule (section J) by sovereign directive; the file is the count.
 
 **The first Phase B deliverable:** under the dev-pipeline discipline with the §4 overrides, scope the first build slice against Document 8, pin its criteria before implementation, and build nothing that does not resolve to one. The store substrate and the Book I enforcement layer (criteria sections A, B, E, H) are the natural foundation — everything else stands on them. Do not begin with agents; begin with the ground they cannot corrupt.
 
@@ -91,3 +92,5 @@ Several capabilities are intended but deliberately fenced off from the first bui
 **AMENDMENTS — 2026-07-07 (Phase A authoring, ratified Dogma v1.0).** §1: the Cardinal removed from the agent list — the Cardinal is the matrix, not an agent (sovereign ruling); Notaries and the Deacon added. Note: v1 external fetching is broader than originally deferred — Devout writ trips joined the canon loop under the Mandate Rule (Student Handbook §1.4); the retrieval-breadth system remains deferred.
 
 **PROMOTION — 2026-07-07.** Documents 5–7 promoted from ratified drafts to their canonical filenames; the original directive briefs moved to `_history/` (provenance only, out of the build path); Document 8 added; §§2, 4, 5 of this briefing updated to reflect Phase A completion and Phase B entry.
+
+**AMENDMENTS — 2026-07-09.** §4 gains the fourth override (execution locus is the host — sovereign decision S6, recording what nine slices practiced and no prior session argued), and §4's intro no longer counts the overrides; §§2, 5 no longer state a criterion count in prose (ruling G12, `docs/dev/PROMPT_G_RULINGS.md`: the file is the count; a number in prose is a registry-keeper).

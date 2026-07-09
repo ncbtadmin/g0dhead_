@@ -2,7 +2,7 @@
 # Phase B Success Criteria
 ### The Testable Spec — v1.0 (Phase A deliverable)
 
-> Every criterion is a verifiable assertion that seeds at least one test in Phase B's verification gate (`cargo test` + `cargo clippy` + `cargo fmt --check`; warnings fixed, not shipped). IDs are stable and citable. Sources: Central Dogma v1.0, Holy Standard v1.0, Student Handbook v1.0 (canonical, promoted 2026-07-07), docs 1–4 as amended. Conventions: "rejected" means refusal per Law VII with the named reason code and a RefusalRecord; "the store" means the abstracted store interface — criteria hold across substrate swaps. Sections F and J carry adversarial suites by sovereign directive.
+> Every criterion is a verifiable assertion that seeds at least one test in Phase B's verification gate (`cargo test` + `cargo clippy` + `cargo fmt --check`; warnings fixed, not shipped). IDs are stable and citable. Sources: Central Dogma v1.0, Holy Standard v1.0, Student Handbook v1.0 (canonical, promoted 2026-07-07), docs 1–4 as amended. Conventions: "rejected" means the store refuses the act — the write does not occur and the attempt surfaces as the named error (logged `severity: violation` where an API-layer observer with a live identity exists); "refuses," of an agent, means the Law VII procedure with a persisted RefusalRecord (ruling G1); "the store" means the abstracted store interface — criteria hold across substrate swaps. Sections F and J carry adversarial suites by sovereign directive.
 
 ---
 
@@ -15,6 +15,7 @@
 - **SC-A05** — Input bearing an out-of-range `schema_version` → `SCHEMA_MISMATCH` refusal before any processing; no best-effort parse path exists. (II.4)
 - **SC-A06** — Every persisted record carries a complete Envelope; the store rejects records missing any envelope field. (Book I conventions)
 - **SC-A07** — After FLAG or REFUSED, further store access under that job's identity is rejected and logged `severity: violation`. (I.4)
+- **SC-A08** — Every persisted record's `produced_by` resolves to a live JobRecord or a registered office identity, and that JobRecord's `input_refs` resolve; swept suite-wide. (V.2 as dispersed — Dogma Standing Note r6; minted by ruling G8)
 
 ## B. Handoff (Law III)
 
@@ -31,7 +32,7 @@
 - **SC-C04** — Executing a `GRANTED` petition lays a successor override: result reads `user_overridden: true`, `basis: GRANTED_PETITION`, with `prior_ref` and `consent_ref` resolving. (IV.5)
 - **SC-C05** — Post-grant, an ordinary agent mutation of the granted datum is rejected — protection persisted through the grant. (IV.5)
 - **SC-C06** — A `GRANTED` petition with no completed Notary execution job within the stall window is surfaced by the supervisor. (IV.5)
-- **SC-C07** — Each entry in IV.4's closed list — including **authoring fetch mandates** — has no agent-callable path; an attempted invocation is refused `GATE_BYPASS_ATTEMPT` and logged `severity: violation` (one test per entry). (IV.4)
+- **SC-C07** — Each entry in IV.4's closed list — including **authoring fetch mandates** — has no agent-callable path; an attempted invocation is rejected `GATE_BYPASS_ATTEMPT` — and logged `severity: violation` where an API-layer observer with a live identity exists; the wall does not keep a diary (one test per entry-surface, once the surface exists). (IV.4; narrowed by ruling G6)
 
 ## D. The Commitment Chain (Law VI; Aggregators, Auditors, Notaries)
 
@@ -48,10 +49,11 @@
 
 ## E. Refusal (Law VII)
 
-- **SC-E01** — Every refusal produces a RefusalRecord naming the law, a reason code from the closed enum, subject refs, and preserved refs. (VII.2)
+- **SC-E01a** — An enacted refusal's RefusalRecord persists complete: the law, a reason code from the closed enum, subject refs, and preserved refs. (VII.2; the shape half of former SC-E01, split by ruling G5 — the universal is SC-E05)
 - **SC-E02** — A refusing agent performs no mutation of the offending state beyond quarantine-marking (diff test: pre/post refusal state identical except marks). (VII.3)
 - **SC-E03** — `REFUSED` is distinct from failure in job records; the reference metrics query scores refusals as compliance, not error. (VII.4)
 - **SC-E04** — Partial outputs of a refused job are non-authoritative: downstream reader validation rejects them. (VII.5)
+- **SC-E05** — Any labor halting after RUNNING ends REFUSED with a persisted RefusalRecord; a failed refusal write propagates as a hard error; no sequence of inputs can suppress the record. Sweep half: at suite end, zero jobs stand RUNNING beyond their wall budget. (VII.1; minted by ruling G5)
 
 ## F. Tool-Calling (Law VIII) — adversarial-heavy by directive
 
@@ -84,6 +86,7 @@
 - **SC-H04** — An anonymous write (missing job identity) is rejected at the store; every write in a full pipeline run is attributable. (XIII.1)
 - **SC-H05** — A job spawned without budgets fails validation; budget exhaustion mid-work refuses `BUDGET_EXCEEDED`, releases leases, marks partials non-authoritative, terminates. (XIV)
 - **SC-H06** — No credential or endpoint key appears in any store record, log, provenance, or model-context fixture across a full pipeline run (scan assertion); endpoints are referenced by alias only. (XV.1)
+- **SC-H07** — A config-constant read whose value is absent or fails to parse as its expected type refuses; no code path substitutes a fabricated default for a sovereign or operational constant. Arch half: a workspace-wide scan rejects fallback-shaped extraction (`unwrap_or`/`unwrap_or_else`/`unwrap_or_default`) applied to config values, all crates. (Law II.2 applied to config; A.14; minted by ruling G2)
 
 ## I. The Deacon's Threshold
 
@@ -93,6 +96,8 @@
 - **SC-I04** — Admitted items enter the onboard pipe at its beginning: raw copy, first log, normalization all observable — no shortcut path exists. (Book II §1, step 6)
 - **SC-I05** — Rejected and held items remain in quarantine, preserved and unpurged, within `quarantine_retention_days`. (Book II §1, step 7)
 - **SC-I06** — Architectural: no API path admits unscanned material (mirror of SC-B04 for the gate). (Book II §1)
+- **SC-I07a** — A write to a sovereign- or office-reserved table whose path did not authenticate as that class is rejected at the substrate, whatever string it stamps — fixtures: `'sovereign'`, `'deacon'`, `'forged'`, each via raw SQL, each rejected. (XIII.1; Book II; minted by ruling G10)
+- **SC-I07b** — When items-per-consent or consents-per-window exceed the operational constants (`admission_batch_threshold`, `admission_rate_window/threshold`), the Manifest carries a standing notice with the petition-style terminal answers (acknowledge / silence, suppressed logging). Never blocking; never silent. (Book II §1 doctrine; minted by ruling G11)
 
 ## J. The Mandate Rule & the Loops — adversarial-heavy by directive
 
@@ -154,3 +159,7 @@ Sections **F** and **J** are not satisfied by example-based tests alone. Phase B
 Everything else in this document defends the store from bad state; these two defend it from bad *minds* — the weak local model and the vaguely-worded errand being the two most likely real-world doors. Test them like doors.
 
 *End of the testable spec. Phase A closes here; Phase B builds against this document and the ratified drafts it cites.*
+
+---
+
+**AMENDMENTS — 2026-07-09** *(post-ratification, per the author's rulings in `docs/dev/PROMPT_G_RULINGS.md` — sha256 `f8630c6fbd6c6a1a7532cc6f323e65b91435cd9a5ed4e957770078c860ab89c0` — adopted by sovereign decision S5).* Preamble: the two-verb convention (G1) replaces the conflated "rejected" sentence — the wall rejects, the agent refuses. SC-C07's log clause narrowed to API-layer observers (G6: the wall does not keep a diary). SC-E01 split (G5): SC-E01a carries the shape half; the universal moved to minted SC-E05. Minted this round: SC-A08 (G8), SC-E05 (G5), SC-H07 (G2), SC-I07a (G10), SC-I07b (G11) — each cites its construction site in `docs/dev/CRITERIA_SWEEP.md`, which is generated, not kept. No count is stated in prose: the file is the count (G12).

@@ -28,5 +28,5 @@ Cargo.toml                  workspace root
 crates/godhead-schemas/     Appendix A record types + validation
 crates/godhead-store/       the Store trait + Postgres substrate + migrations
 docs/                       the spec (docs 00–08) — canonical, read 00 first
-docs/dev/SLICE_01.md        current pinned build slice
+docs/dev/SLICE_NN.md        pinned slice specs + delivery ledgers, one per slice — the highest N is current
 ```
