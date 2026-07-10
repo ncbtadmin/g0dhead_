@@ -1001,6 +1001,38 @@ impl PgStore {
             }
             Ok(())
         }
+        // honorific_set is NOT a flat string array (that was the bug the Slice
+        // 11 opening round caught): it is the nested shape the conferral +
+        // mount paths read — `{"teacher": {TIER: title, …}, "student":
+        // [honorific, …]}` (seed migration 0007). The contract validates that
+        // structure, so the value the store admits is exactly the value
+        // mount_environment can read.
+        fn honorific_shape(value: &serde_json::Value) -> Result<(), String> {
+            let Some(obj) = value.as_object() else {
+                return Err("must be an object with 'teacher' and 'student'".into());
+            };
+            let Some(teacher) = obj.get("teacher").and_then(|t| t.as_object()) else {
+                return Err("must carry a 'teacher' object of tier -> title".into());
+            };
+            if teacher.is_empty()
+                || teacher
+                    .values()
+                    .any(|v| v.as_str().is_none_or(|s| s.trim().is_empty()))
+            {
+                return Err("every 'teacher' title must be a non-empty string".into());
+            }
+            let Some(student) = obj.get("student").and_then(|s| s.as_array()) else {
+                return Err("must carry a 'student' array of honorifics".into());
+            };
+            if student.is_empty()
+                || student
+                    .iter()
+                    .any(|v| v.as_str().is_none_or(|s| s.trim().is_empty()))
+            {
+                return Err("'student' must be a non-empty array of non-empty strings".into());
+            }
+            Ok(())
+        }
         let result = match key {
             "bias_pattern_window" => int_at_least(value, 1),
             "bias_skew_threshold" | "bias_pattern_threshold" | "coherence_threshold" => {
@@ -1013,7 +1045,8 @@ impl PgStore {
             | "admission_rate_threshold"
             | "quarantine_retention_days" => int_at_least(value, 1),
             "tool_repair_attempts" => int_at_least(value, 0),
-            "name_roster" | "honorific_set" => string_array(value, true),
+            "name_roster" => string_array(value, true),
+            "honorific_set" => honorific_shape(value),
             "known_source_ids" => string_array(value, false),
             _ => Ok(()),
         };

@@ -324,6 +324,41 @@ async fn config_write_contracts() {
         .expect_err("an empty roster never lands");
     assert!(matches!(err, StoreError::ValidationFailed(_)), "got {err}");
 
+    // honorific_set is a NESTED object, not a flat array (the Slice 11
+    // opening round caught the wrong contract). A flat array is now rejected...
+    let err = store
+        .set_config(
+            "e05-harness",
+            "honorific_set",
+            ConfigTier::Operational,
+            &json!(["Br.", "Sr."]),
+            None,
+        )
+        .await
+        .expect_err("a flat-array honorific_set never lands");
+    assert!(
+        matches!(err, StoreError::ValidationFailed(_))
+            && err.to_string().contains("write-side contract"),
+        "the honorific_set contract rejects the flat shape: {err}"
+    );
+    // ...and the correct nested shape CLEARS the contract — the only barrier
+    // it then meets is the already-exists guard (proving the contract passed
+    // it; before the fix this shape was unwritable through the store).
+    let err = store
+        .set_config(
+            "e05-harness",
+            "honorific_set",
+            ConfigTier::Operational,
+            &json!({ "teacher": { "DEVOUT": "Professor" }, "student": ["Br."] }),
+            None,
+        )
+        .await
+        .expect_err("None-insert of the seeded key hits the already-exists guard");
+    assert!(
+        !err.to_string().contains("write-side contract"),
+        "the nested honorific_set shape must clear the contract: {err}"
+    );
+
     // A contract-less unknown key still writes: prevention is per-contract,
     // not a closed-world guess about keys the order has not yet met.
     let free_key = format!("e05_uncontracted_{}", Uuid::now_v7());

@@ -75,9 +75,58 @@ the commit that makes removal safe, in Phase 5. Until that commit, the wall is
 argued to stand: this slice proves Section J against the trait, and the boundary
 holds because it is reasoned, not because the slice before it happened to hold it.
 
+## 0.1 The opening adversarial round — outcome (2026-07-09)
+
+The round ran (condition 1) as the coverage gap the aborted Slice 10 review left:
+the **four finder lenses that never ran** (quarantine-wall, mandate-writ
+concreteness, riders-integrity/config/identity, arch-walls) plus a **fix-diff /
+refutation audit** of the three fixes and two refutations Slice 10 landed in-loop.
+The eleven findings the aborted round's completed lenses had already produced
+(F1–F11, dispositioned in `SLICE_10.md §9.2`) were not re-run. Each new finding
+got the independent three-lens refuter panel (code-trace / reachability /
+reproduction; majority-CONFIRM to survive) that the aborted round never reached.
+Twenty-three agents, no errors. Six candidates: **three survived, three refuted.**
+
+**Confirmed → pre-11 riders, landed (fixed with tests before §1+ pins):**
+
+| Rider | Severity | What it was, and the fix |
+|---|---|---|
+| R11-1: `honorific_set` write-side contract | major (3/3) | The H3(2) contract lumped `honorific_set` with `name_roster` as a flat string array, but its shape is the nested `{"teacher": {tier: title}, "student": [honorific]}` object the conferral and mount paths read (seed 0007). So the *correct* value was unwritable through `set_config`, and the only contract-passing value (a flat array) bricked every environment mount. Fixed: `honorific_set` gets its own object-shape contract (`postgres.rs` `config_contract`); non-mutating test in `e05_riders.rs::config_write_contracts`. |
+| R11-2: wall blind to `[dependencies.<name>]` | major (3/3) | `manifest_dep_names` recognized only section-form `[dependencies]` headers; Cargo's per-dependency **table form** `[dependencies.interprocess]` slipped it, and since the lockfile half does not check the raw-socket list, a table-form IPC/raw-socket crate escaped **both** halves — a hole in the exact wall §0 rests on. Fixed: the parser now reads the table form (and a rename inside it); regression test `manifest_table_form_is_caught`. |
+| R11-3: wall omits `ws`/`websocket`/`soketto` | minor (2/3) | WebSocket transport is in the wall's scope (`tungstenite`/`tokio-tungstenite` are listed) but these were absent, leaving a lawful `ws = "…"` a green path. Fixed: added to the substrate list (verified absent from `Cargo.lock` first, since that list is lock-checked). |
+
+**Recorded seam — not a live bug, but §1+ must resolve it (not silently blessed):**
+Law V.4's `godhead_quarantine_only` wall fires only for **mandate-rooted** fetch
+jobs (`brief_ref ∈ mandates`), while the schema and `quarantine_deposit` also
+admit **brief-rooted** external arrivals. The panel majority-refuted this as a
+*live* bypass — there is no fetch layer yet, and by C.4 a mandate is the charter
+of every *outward* act while a brief charters *internal* work, so the design
+record (`i_deacon.rs`) has Slice 11 trips take the mandate-rooted
+FETCH_PER_CANON/WRIT shape, which the wall covers — but all three verifiers
+flagged it as a real forward-looking seam. **When §1+ pins the fetch behavior it
+must close this explicitly:** either every external fetch is mandate-rooted by
+construction (and the brief-rooted deposit path is documented/constrained to
+internal use), or the V.4 wall extends to brief-rooted external arrivals. Pinned
+here so the pin faces it rather than inherits it.
+
+**Refuted, with two byproducts worth keeping:**
+- The claim that `gate_report.py` would report a **false FAIL** when ≥2 binaries
+  flake was refuted *empirically* — two verifiers built a two-binary crate and
+  ran `cargo test --no-fail-fast`; cargo emits a per-binary `to rerun pass` hint
+  for each failed target (plus the consolidated summary), so the producer's
+  `rerun_specs` catches them all. The producer's rerun logic is sound.
+- The claim that `sc_a08`'s resolution union omits real tables (causing false
+  "dangling") was refuted: `artifacts`/`embeddings`/`environment_items`/
+  `concordat_artifacts` mint no standalone uuid a lawful `input_ref` could cite
+  (composite or text keys; their uuids resolve via the tables already walked) —
+  which closes the open observation `SLICE_10.md §9.3` had left.
+
 ---
 
 *§0 recorded 2026-07-09 by sovereign ruling — "the boundary is argued, not
-inherited." Sections 1+ (pinned criteria, what-this-builds, riders, non-goals,
-gate) pin after the opening adversarial round (condition 1), and carry the F1
-keyed-intake rider (condition 2) and any pre-11 riders the round confirms.*
+inherited." The opening adversarial round has run (§0.1): three confirmed
+findings landed as pre-11 riders R11-1..3, the V.4 brief-rooted seam is pinned
+for the pin to resolve. Sections 1+ (pinned criteria, what-this-builds, the
+full rider list incl. the F1 keyed-intake rider, non-goals, gate) pin next, as
+their own docs commit crossing the desk before implementation — the two-commit
+lifecycle (DISCIPLINE.md §5).*

@@ -233,22 +233,52 @@ fn sc_b04_workspace_ipc_scan() {
 fn manifest_dep_names(text: &str) -> Vec<String> {
     let key_re = Regex::new(r"^\s*([A-Za-z0-9_-]+)\s*=").expect("regex");
     let rename_re = Regex::new(r#"package\s*=\s*"([^"]+)""#).expect("regex");
-    let mut in_deps = false;
+    // Two section shapes carry dependencies. The section form
+    // `[dependencies]` / `[dev-dependencies]` / `[target.'cfg(..)'.dependencies]`
+    // lists dep names as keys. The per-dependency TABLE form
+    // `[dependencies.reqwest]` / `[dev-dependencies.foo]` /
+    // `[target.'cfg(..)'.dependencies.bar]` names the crate in the HEADER
+    // itself — the segment after the last `dependencies.`. Missing that form
+    // was the hole the Slice 11 opening round caught: `[dependencies.interprocess]`
+    // trims to `dependencies.interprocess`, which does not end with
+    // "dependencies", so the crate name was never captured and the wall went
+    // blind to raw-socket/IPC crates declared that way.
+    let mut in_deps = false; // a [..dependencies] table: keys are dep names
+    let mut in_single = false; // a [..dependencies.<name>] table: a rename inside still counts
     let mut names = Vec::new();
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
-            in_deps = trimmed.trim_matches(['[', ']']).ends_with("dependencies");
+            let section = trimmed.trim_matches(['[', ']']);
+            in_deps = section.ends_with("dependencies");
+            in_single = false;
+            if !in_deps {
+                if let Some((_, name)) = section.rsplit_once("dependencies.") {
+                    if !name.is_empty()
+                        && name
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                    {
+                        names.push(name.to_string());
+                        in_single = true;
+                    }
+                }
+            }
             continue;
         }
-        if !in_deps {
-            continue;
-        }
-        if let Some(cap) = key_re.captures(line) {
-            names.push(cap[1].to_string());
-        }
-        if let Some(cap) = rename_re.captures(line) {
-            names.push(cap[1].to_string());
+        if in_deps {
+            if let Some(cap) = key_re.captures(line) {
+                names.push(cap[1].to_string());
+            }
+            if let Some(cap) = rename_re.captures(line) {
+                names.push(cap[1].to_string());
+            }
+        } else if in_single {
+            // Only a `package = "…"` rename matters inside a per-dep table;
+            // version/features lines are not dependency names.
+            if let Some(cap) = rename_re.captures(line) {
+                names.push(cap[1].to_string());
+            }
         }
     }
     names
@@ -300,6 +330,12 @@ fn no_outward_transport_wall() {
         "http-body",
         "tungstenite",
         "tokio-tungstenite",
+        // The other maintained/legacy WebSocket transports — WebSocket is in
+        // scope (tungstenite proves it), so the wall must not leave a lawful
+        // `ws = "…"` a green path (Slice 11 opening round, minor finding).
+        "ws",
+        "websocket",
+        "soketto",
         "native-tls",
         "openssl",
     ];
@@ -358,6 +394,44 @@ fn no_outward_transport_wall() {
             "Cargo.lock carries hyper-family package '{name}' — the wall is breached"
         );
     }
+}
+
+/// The manifest parser must see Cargo's per-dependency TABLE form, not only
+/// the section form — the Slice 11 opening round found `[dependencies.<name>]`
+/// slipped the wall (and the lock half does not check the raw-socket list, so
+/// the manifest half is the sole guard for IPC crates). Pure-function
+/// regression test, no DB.
+#[test]
+fn manifest_table_form_is_caught() {
+    // Section form still works.
+    assert!(
+        manifest_dep_names("[dependencies]\nreqwest = \"0.12\"\n").contains(&"reqwest".to_string())
+    );
+    // The three table forms that used to go blind.
+    assert!(
+        manifest_dep_names("[dependencies.interprocess]\nversion = \"2\"\n")
+            .contains(&"interprocess".to_string())
+    );
+    assert!(
+        manifest_dep_names("[dev-dependencies.reqwest]\nversion = \"0.12\"\n")
+            .contains(&"reqwest".to_string())
+    );
+    assert!(
+        manifest_dep_names("[target.'cfg(unix)'.dependencies.nix]\nversion = \"0.29\"\n")
+            .contains(&"nix".to_string())
+    );
+    // A rename inside a per-dep table names the REAL crate; version/features
+    // lines under it are not dependency names.
+    let names =
+        manifest_dep_names("[dependencies.myhttp]\npackage = \"reqwest\"\nversion = \"1\"\n");
+    assert!(
+        names.contains(&"reqwest".to_string()),
+        "rename not seen: {names:?}"
+    );
+    assert!(
+        !names.contains(&"version".to_string()),
+        "config key mis-captured: {names:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
