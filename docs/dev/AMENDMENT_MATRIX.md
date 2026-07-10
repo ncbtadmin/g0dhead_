@@ -35,9 +35,9 @@ are evidence, not current definitions.
 | SC-I07b · A.12 | append-only `AdmissionNotice` occurrence, revision, scope digest, acknowledge/silence resolution, and lawful re-arm | D7 | PROPOSED |
 | HS §6.3 · SC-K07 | bias-warning occurrence/lift lineage; SILENCED → LIFTED and lawful later re-arm | D7 | PROPOSED |
 | A.10 · IX.5 · Holy Standard §§4–5 | initial persistent pairing is a sovereign act because it opens the Pairing Exception; Devout and Doctor commands are operation-specific | D7 | PROPOSED |
-| IV.4 · A.8 · signed Slice 11b §0.2/§0.6 | `retire_environment` is the sole human lever from LIVE/ORPHANED to DISSOLVED | Slice 11b; D7 owns perimeter | SANCTIONED / PENDING DELIVERY |
-| A.8 · Holy Standard §4.3 · signed Slice 11b §§0.1–0.5 | ORPHANED is dependency-loss only; no revival; replacement mints fresh records | Slice 11b; D7 owns sealing | SANCTIONED / PENDING DELIVERY |
-| new A-series relation · A.10 · signed Slice 11b §0.4 | immutable Doctor deployment reference and one-to-one Doctor environment + deployment + `CANONICAL_INSTRUCTION` pairing invariant | Slice 11b; D7 owns command | SANCTIONED / PENDING DELIVERY |
+| IV.4 · A.8 · signed Slice 11b §0.2/§0.6 | `retire_environment` is the sole human lever from LIVE/ORPHANED to DISSOLVED | Slice 11b; D7 owns perimeter | DELIVERED 2026-07-10 @ `a0e4919` — witnesses: `crates/godhead-store/migrations/0019_doctor.sql:51-61` (human-only guard into DISSOLVED + status-arc trigger), `crates/godhead-store/src/postgres.rs:4341` (`retire_environment`), `crates/godhead-store/tests/j_doctor.rs:335` (`sc_j08_retire_is_human_reserved`) |
+| A.8 · Holy Standard §4.3 · signed Slice 11b §§0.1–0.5 | ORPHANED is dependency-loss only; no revival; replacement mints fresh records | Slice 11b; D7 owns sealing | DELIVERED 2026-07-10 @ `a0e4919` — witnesses: `crates/godhead-store/migrations/0019_doctor.sql:45-46` (no ORPHANED→LIVE) + `:69-81` (leaving-LIVE orphan cascade), `crates/godhead-store/src/postgres.rs:3729` (`execute_decommission` per-row cascade), `crates/godhead-store/tests/j_doctor.rs:248` (`sc_j08_no_silent_revival`, incl. fresh-deploy half) + `:194` (`sc_j08_leaving_live_orphans_doctor`, both levers) |
+| new A-series relation · A.10 · signed Slice 11b §0.4 | immutable Doctor deployment reference and one-to-one Doctor environment + deployment + `CANONICAL_INSTRUCTION` pairing invariant | Slice 11b; D7 owns command | DELIVERED 2026-07-10 @ `a0e4919` — witnesses: `crates/godhead-store/migrations/0019_doctor.sql:7-30` (`doctor_deployments` both-instruments DDL, immutable + no-delete triggers), `crates/godhead-schemas/src/environment.rs:82-86` (`DoctorDeployment`), `crates/godhead-store/src/postgres.rs:4277` (`deploy_doctor` mints env + `CANONICAL_INSTRUCTION` pairing + reference row in one act), `crates/godhead-store/tests/j_doctor.rs:121` (`sc_j08_deploy_requires_live`) |
 | A.4 | `TARGET_RELEASED · TARGET_SUPERSEDED` terminal petition-execution refusal reasons | D8 | PROPOSED |
 | A.7 | per-kind `OverrideLineage` epochs, released fallbacks, scoped `EffectiveSourceSelection`, immutable occurrences/resolutions/execution attempts, release and transition records | D8 | PROPOSED |
 | new A-series relations | `BondCategoryEvidence`, `EffectiveSourceSelection`, exact-hash `TransitionPlan`, `PetitionResolution`, and `PetitionExecutionAttempt` | D8 | PROPOSED |
@@ -55,6 +55,20 @@ final A.5 event names `ENV_DISSOLVED` / `DOCTOR_DEPLOYED`. After Slice 11b lands
 the required rebase pass verifies the committed migration, schemas, tests,
 taxonomy, and exact event names before adding them to delivered inventory or
 this matrix. In-flight main-tree files are not evidence of delivery.
+
+**Queue discharged 2026-07-10** (the named rebase pass, per the returned
+decisions' execution order step 2). All items verified against `a0e4919`
+git objects, not working files: migration
+`crates/godhead-store/migrations/0019_doctor.sql` exists and carries the DDL,
+the status-arc and orphan-cascade triggers, and the A.5 taxonomy extension;
+schemas at `crates/godhead-schemas/src/environment.rs:82-86`
+(`DoctorDeployment`); tests at `crates/godhead-store/tests/j_doctor.rs`
+(four `sc_j08_*` tests, lines 121/194/248/335); the exact A.5 event names
+confirmed as `ENV_DISSOLVED` / `DOCTOR_DEPLOYED` at
+`crates/godhead-schemas/src/log.rs:47-48` and
+`crates/godhead-store/migrations/0019_doctor.sql:99`. The three
+`SANCTIONED / PENDING DELIVERY` rows above are flipped to DELIVERED with
+per-row witnesses in the same pass.
 
 ## Deliberate non-canonical application records
 
