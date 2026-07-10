@@ -13,6 +13,7 @@ HEAD claims remain evidence of what each pass said, not current normative
 definitions.
 
 ---
+
 ## 17. Pass-2 reconciliation ledger (2026-07-09)
 
 Legend: CONFIRM = concern valid, adopted as posed. AMEND = valid, adopted with
@@ -685,3 +686,161 @@ arch-test, or canon change is authorized by this document — D8 in particular
 authorizes nothing until answered, and the amendment matrix (§21) stays
 proposal-only until the amendment process passes each item. The eight
 decisions above return before the next slice pins.*
+
+## 22. Pass-7 reconciliation ledger (2026-07-10)
+
+Pass 7 ran in the isolated `codex/roadmap-pass7` worktree against committed
+baseline `ffae6a8`. It did not read the in-flight Slice 11b implementation as
+delivered evidence and did not run tests, migrations, formatters, worktree
+pruning, or implementation commands.
+
+### 22.1 Provenance and decomposition
+
+- The exact six-pass artifact—153,669 bytes, SHA-256
+  `7eb8cd62d634b142032adbb74bae723d4c6258bafe8f79f3d27a33ecc951d62f`—was
+  committed alone as `e88384c`; the hash is quoted in its commit message.
+- Only after that commit landed, the verified untracked duplicate in the main
+  tree was deleted. No Slice 11b file was touched.
+- The controlling roadmap now links to one normative proposal home per
+  mechanism: trial/evidence, space/promotion, override lineages, authority
+  registries, and the amendment matrix. §§17–21 moved to this ledger with the
+  historical body verified character-for-character before commit.
+- Historical mechanisms, retractions, and HEAD claims remain verbatim here;
+  they do not override the annexes.
+
+### 22.2 Commission findings
+
+1. **Trial re-audit identity — AMEND.** The commissioned contradiction
+   confirms, but its proposed uniqueness fix was too narrow. At `ffae6a8`,
+   migration 0005 makes reports unique by
+   `(matrix_ref,matrix_revision,auditor)` and proposals by
+   `(matrix_ref,matrix_revision)`; migration 0006 and
+   `postgres.rs:3247–3282` key the barrier to the same revision; and
+   `godhead-audit/src/lib.rs:306–359` adopts the standing reports on retry.
+   Chosen: append-only `TrialCycle`, one live cycle per matrix revision, with
+   cycle identity propagated through reports, barrier, proposal, consent,
+   execution, receipt, and uniqueness. `audit_depth` remains VI.4 recursion;
+   `cycle_no` is evidence-drift retry. Matrix-revision bumping was declined:
+   evidence drift is not a consented structural AMEND. Owner: D4/P2B. Criteria
+   and A.11/Book-II costs are in
+   [TRIAL_AND_EVIDENCE.md](TRIAL_AND_EVIDENCE.md) and
+   [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md).
+
+2. **Checkpoint before envelope substrate — CONFIRM.** Preserved roadmap
+   `e88384c` placed the checkpoint before P2B while assigning the uniform Store
+   envelope to P2B. Chosen: move the minimum auth/context, structural gate,
+   K/R/F/H envelope, receipt/refusal, registry skeleton, and live R19/R20
+   callables into P2A; P2B expands them. Moving the checkpoint after P2B was
+   declined because P2B's semantic pin depends on the checkpoint verdict.
+   Owner: D7/P2A. Exit criteria prove an enrolled operator can invoke the
+   checkpoint and bad commands refuse before elevation.
+
+3. **Atomic promotion still split — CONFIRM.** `set_config` is a standalone
+   Store transaction (`postgres.rs:1794–1867`), while Pass 6 registered R09 and
+   R19 separately. Chosen: R19 alone binds candidate policy, certification,
+   expected live state, and complete disposition plan under one envelope and
+   receipt, ending in one promotion transaction. R09 remains ordinary
+   standalone sovereign config and is absent from `proceed`. Owner: D4/D7 at
+   the checkpoint; R19's hash covers the whole plan.
+
+4. **GraphEpoch starvation — AMEND.** The global epoch is a sound change
+   cursor, but its blast radius was larger than the commissioned activation
+   finding: equality at every human-paced trial handoff lets unrelated intake
+   invalidate every trial. Chosen: global cursor for ordered delta discovery,
+   dependency-scoped trial validity, and bounded candidate delta catch-up with
+   a short fair final micro-fence. Scoped epochs/writer classification remains
+   a viable ADR-2 implementation alternative. Criteria require progress under
+   sustained bounded intake, bounded lag/retries/fence duration, and no global
+   trial invalidation. Owner: D4/P1-A/P2B.
+
+5. **Release selection order — CONFIRM.** Pass 6 selected active head →
+   released fallback → same-epoch machine evidence, making lawful replacement
+   unreachable. Chosen: active head → CAS-selected current-epoch evidence for
+   the requested scope → geometry-neutral released fallback. Global
+   consume-on-first-recalculation was declined because it would strand other
+   and later spaces. Owner: D8/P2B.
+
+6. **D7 completeness and Slice 11b — mixed, substantive gap confirmed.**
+
+   - `retire_environment`: **CONFIRM missing.** Signed Slice 11b §§0.2/0.6
+     makes it an IV.4 act; R24 now carries the perimeter while delivery remains
+     explicitly pending.
+   - Doctor deployment/R17: **AMEND.** Signed §0.4 requires both deployment
+     reference and `CANONICAL_INSTRUCTION` pairing. Replacement is
+     canon-sovereign; the initial case was open. D7 now recommends sovereign
+     authority for both because pairing opens IX.5, with the A.10/manual cost
+     named. Raw CANON establishment/pairing is sealed; deployment is one
+     all-or-nothing operation.
+   - `orphan_environment`: **CONFIRM hidden bypass.** It becomes internal to
+     dependency-loss context, never a human row.
+   - Separate trial-halt command: **REJECT.** Dogma VI.4,
+     `Store::resolve_proposal`, and `sc_d08_fixpoint_and_halt` already make R04
+     `DECLINED` the halt. R19 dispositions only already-halted state.
+   - Authentication-control registry: **CONFIRM missing.** Literal bootstrap,
+     session, rotation, revocation, and sole-client recovery rows now live in
+     the authority annex.
+   - Executor/receipt completeness: **AMEND.** Every command now declares TX,
+     RCPT, or DISPATCH; immediate pending discovery is separated from stall
+     monitoring.
+
+   Owner: D7/P2A–P5. Signed Slice 11b rows are labeled
+   `SANCTIONED / PENDING DELIVERY`; migration 0019 and event names remain in
+   the post-delivery queue.
+
+### 22.3 Composition findings after extraction
+
+7. **Candidate policy versus VI.1 — CONFIRM.** Dogma VI.1 requires density
+   work to cite the single revisioned config; an unrecorded staged threshold
+   would be private policy. Chosen: immutable `CandidatePolicySnapshot`, cited
+   only inside PREPARING evaluation and promotable only by R19, with an
+   explicit VI.1/A.14/SC-D01 amendment. Owner: D4/P1-A.
+
+8. **Trial invalidation after consent — CONFIRM.** A stale consent would remain
+   granted-unexecuted and permanently block activation while zero-delay
+   discovery retried it. Chosen: immutable terminal
+   `STALE_TRIAL_EVIDENCE` execution refusal, no further execution discovery,
+   and explicit successor-cycle resolution or R19 acknowledgement before
+   activation. Consent remains visible. Owner: D4/D7/P2B.
+
+9. **Inactive-but-effective override state — CONFIRM.** Released severance,
+   category, force, and weight remain load-bearing with null heads, while Pass
+   6 plans bound active heads only. Chosen: every plan binds lineage epoch,
+   head-or-null, released fallback, and effective revision; cross-kind acts
+   supersede incompatible active and released sources. `BondQualification`,
+   category evidence, and weight evidence carry epoch/revision. Owner: D8/P2B.
+
+10. **IV.1 versus the SC-C01-only exception — CONFIRM.** Dogma IV.1 itself
+    names granted consent as the mutation exception. Amending SC-C01 alone
+    cannot legalize direct release. Chosen: remove mutable held markers from
+    protected payloads and amend IV.1 and SC-C01 together to admit an
+    authenticated exact-hash sovereign TransitionPlan. Every singleton and
+    composite transition uses that plan. Owner: D8.
+
+11. **Final-holdout adaptivity — CONFIRM.** “Last pre-verdict” cannot be known
+    before observing the result. Chosen: opening the final holdout freezes the
+    candidate and permits terminal `proceed`/`kill`; any subsequent adjustment
+    reclassifies the look as exploratory and requires a newly collected
+    untouched holdout. Sequential alpha-spending remains viable but declined
+    for v1. Owner: D5/P1-B.
+
+12. **Live inventory wording — AMEND.** The Pass-6 executive claim of full
+    Document-8 floor/mock coverage conflicted with
+    `CRITERIA_SWEEP.md:82` and `SLICE_11.md:394–396`, where SC-J08 remains the
+    single DEFERRED criterion. The controller now states that exception and
+    uses committed baseline `ffae6a8`; 18 migrations and 161 tests remain the
+    committed inventory until Slice 11b delivers.
+
+### 22.4 Bounded verdict
+
+The commissioned findings have dispositions, witnesses, chosen mechanisms,
+declined alternatives, owners, criteria hooks, and amendment costs in one
+normative home. The controlling sheet no longer restates those mechanisms.
+This pass **does not certify contradiction-freedom and does not declare the
+decision sheet answerable**. A composition/link sweep can verify document
+structure, not establish that this author found every design contradiction.
+
+The mandatory next repository event is the named post-Slice-11b reconciliation:
+after delivery on master, rebase this branch, refresh inventory, and audit the
+registry/matrix against the committed migration, schemas, criteria, tests, and
+event taxonomy. Nothing from the in-flight main worktree has been counted
+early.

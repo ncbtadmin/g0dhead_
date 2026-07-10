@@ -76,21 +76,16 @@ immutable values and identities rather than mutable revision pointers:
   assisted—the reasoner/model digest and prompt/policy version;
 - calculation-run identities and input/output digests;
 - exact node and bond membership at the tried matrix revision;
-- for every relevant node and bond, the complete effective-lineage witness
-  exported by [OVERRIDE_LINEAGES.md](OVERRIDE_LINEAGES.md), including inactive
-  released state; and
+- for every relevant node and bond, the complete `EffectiveLineageWitness`
+  defined only in [OVERRIDE_LINEAGES.md](OVERRIDE_LINEAGES.md), including
+  inactive released state; and
 - for every tried bond, the selected qualification and effective weight source
   with space, policy, lineage epoch, effective revision, and evidence/run ref.
 
-The closed effective-source variants are:
-
-- `ACTIVE_OVERRIDE { head_ref, lineage_epoch }`;
-- `RELEASED_AS_STANDS { release_ref, lineage_epoch, effective_revision }`; and
-- `MACHINE { evidence_ref, lineage_epoch, effective_revision, space_ref, policy_ref, run_ref }`.
-
-This replaces Pass 6's incomplete choice between machine evidence and an active
-override head. A released category, severance, or weight can govern the trial
-even when `active_head_ref` is null.
+The annex consumes that closed witness shape by reference rather than defining
+a second copy. It replaces Pass 6's incomplete choice between machine evidence
+and an active override head: a released category, severance, or weight can
+govern the trial even when `active_head_ref` is null.
 
 Both auditors' reports and the Joint Proposal cite the cycle and evidence set
 directly. A ConsentRecord resolves them transitively through its immutable

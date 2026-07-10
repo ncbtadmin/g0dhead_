@@ -1,6 +1,8 @@
 # Roadmap Reconciliation — the sequence after Slice 11
-### Prepared 2026-07-09, revised 2026-07-09/10 (passes 2–7) · analysis only — COMMITTED ON PROPOSAL BRANCH, UNMERGED, UNPINNED
-### Nothing here is implemented, canonically amended, or authorized until the §15 decisions return. Passes 2–7 and every visible retraction live in [REVIEW_LEDGER.md](REVIEW_LEDGER.md).
+
+**Prepared:** 2026-07-09; revised 2026-07-09/10, passes 2–7.
+
+**Status:** Analysis-only — committed on proposal branch, unmerged, unpinned. Nothing here is implemented, canonically amended, or authorized until the §15 decisions return. Passes 2–7 and every visible retraction live in [REVIEW_LEDGER.md](REVIEW_LEDGER.md).
 
 Documents 5–8 remain authoritative about required behavior. This document proposes
 development *order*, application *boundaries*, and validation *gates*. It weakens,
@@ -61,66 +63,35 @@ below.
 
 ## 2. Capability inventory
 
-**Production-shaped and reachable through an application surface** —
-NONE. This row is the finding. (`db_probe` is a diagnostic example, not a
-surface.)
+**Production application surface:** none. `db_probe` is a diagnostic example,
+not a product binary.
 
-**Implemented as domain/infrastructure libraries (test-exercised only)** —
-the store substrate and its 18 migrations (lifecycle, artifacts, flags,
-refusals, leases, logs, config, secret scan, J-floor mandates, threshold
-admission, actor-class, threshold events, canon sources, V.4 closure); intake
-(commit→normalize→classify, dispatcher, supervisor, F1 keyed-intake
-idempotency — delivered with Slice 11); sovereignty (overrides on
-classification, petitions, consents, Notary grant execution); ML floor (roster
-traits, 256-dim lexical embedder, Vectoring Slave, Aggregator
-consolidate/emergence, rebalance triggers); commitment chain (audit invocation,
-AND-barrier, reconciliation, Notary matrix labors, fiat-impossibility);
-tool-call ladder; scriptoria (establish/mount/scoped reads/pairings/
-conferral); Concordat (six-clause lint, double-validation, bias doctrine);
-Student returns (completion contract, refine/re-derive, consistency walk,
-steward); the Deacon's threshold (quarantine, verdicts, manifests, admission
-conjunction, actor-class authentication); **the collector (Slice 11,
-delivered 75ad38b: Section-J fetch execution, collection manifests, canon
-sources, both V.4 closures — mock transport)**.
+**Implemented, library-only:** twelve crates and 18 committed migrations cover
+the store substrate, immutable intake, sovereignty/petitions/Notary grants,
+lexical ML floor and assisted-weighting seam, matrix trial/commitment,
+tool-call repair, scriptoria/pairings, Concordat and Student returns, threshold
+admission, and Slice 11 collection against mock transport. They are reachable
+through tests or direct crate calls, not an API.
 
-**Proven against deterministic mocks (by design, real provider absent)** —
-scanning (`ScanEndpoint` mock; ClamAV unwired); tool-call constrained
-generation (`ScriptedCaller`; SC-F06 integration half pinned); reasoner
-(test mock only — note the assisted weighting *path* is built and SC-M03-tested
-against the mock; only the real mind is absent); fetch (Slice 11 proves Section
-J behavior against the instrumented `FetchEndpoint` mock).
+**Mock-proven but not real-integrated:** scanner endpoint, model reasoner/tool
+caller, and fetch transport. The assisted-weighting path exists; the real
+reasoner does not.
 
-**Missing integration surfaces** — server binary and lifecycle; versioned
-application API; authentication and client authority (§11); upload transport
-(`commit_file` takes in-process bytes); progress/state-change delivery; any
-retrieval or search surface; deployment config and health; **coherent
-backup/restore across both substrates** (the atoms live on the filesystem,
-their references and all derived state in Postgres — doc 03 §1.3's split means
-snapshot, restore, and migration must treat the pair as one consistency unit,
-and nothing does yet); the client; real embedder; real reasoner; real scanner;
-real fetch transport. Plus the three domain gaps named in §3 (link-override
-laying, node-incident links, matrix listing).
+**Missing application/integration work:** server/API/authentication; upload and
+progress transport; retrieval/search and client; deployment/health; real
+embedder/reasoner/scanner/fetch; and one consistency-unit backup/restore across
+Postgres plus filesystem atoms. Domain gaps are link-override laying,
+`links_for_node`, and `list_matrices`.
 
-**Explicitly deferred by canon (doc 00 §7)** — the Librarian and richer-media
-degradation; retrieval breadth; the Duty of the House; multi-tenancy.
+**Deferred/residual:** Librarian, richer media, retrieval breadth, Duty of the
+House, and multi-tenancy remain canon-deferred. SC-F06's integration half moves
+to P5; SC-I05 purge remains Duty-of-House work; SC-J09 real transport waits for
+P6; SC-J08 remains DEFERRED until signed Slice 11b delivers; the criteria
+sweep's PENDING classifications are non-blocking; `coherence_threshold` stays
+deliberately unseeded until P1; P0 closes shared-DB test isolation.
 
-**Known residues, NARROWER rows, annotated halves** — SC-F06 integration half
-(ownership resolved in §8/P5 — historical disposition in
-[REVIEW_LEDGER.md](REVIEW_LEDGER.md)); SC-I05 purge half (Duty of the
-House); SC-J09 fetch half (Slice 11 delivered its mock half; real-transport
-validation at P6); Slice 11's mock-proven J criteria carry the same G13 shape
-until transport is real; the criteria sweep's remaining PENDING rows
-(classification in progress, non-blocking); ~~F1 keyed-intake (named Slice 11
-rider)~~ **delivered with Slice 11 (75ad38b)**; **Slice 11b (the Doctor and
-the dissolution cascade) — pinned at 26c0090, amended at `ffae6a8`, and still
-undelivered; it precedes P0**; `coherence_threshold` unseeded (deliberate — P1 is where the
-sovereign finally sets it on evidence, at the §8/P1 checkpoint);
-known shared-DB test serialization (managed, not solved — P0 closes it).
-
-**Criterion satisfaction vs application readiness** — the sweep measures
-whether tests match criteria text; nothing in it measures whether an operator
-action can reach the behavior. Both measures are needed from here on; only the
-first exists today.
+The criteria sweep measures behavior evidence, not operator reachability. From
+this point forward both are required.
 
 ## 3. Dependency graph — HEAD to the first useful loop
 
@@ -137,7 +108,7 @@ navigation/retrieval.
 | Weights / live | floor formula; assisted path (mock-proven); `live_weights` | threshold value (empirical); real reasoner for assisted mode (P4 entry); legibility read model |
 | Emergence | `emerge_postulant` (cited, idempotent) | threshold value; `list_postulants` read |
 | Inspection & correction | category override (laying + protection); link *protection* only | **`lay_link_override` — absent at every layer (§3.1)**; `explain_link` assembly (primitives exist) |
-| Audit → consent → commit | complete at crate level (floor auditors, barrier, reconcile, Notary) | the full ceremony command/read façade (§8/P2 Tranche B); the executable-consent tick as a served behavior; the server as the authenticated sovereign-class path (G10) |
+| Audit → consent → commit | complete at crate level (floor auditors, barrier, reconcile, Notary) | the full ceremony command/read façade (§8/P2B); the executable-consent tick as a served behavior; the server as the authenticated sovereign-class path (G10) |
 | Navigation / retrieval | `get_matrix` only | neighborhood traversal; matrix browse; retrieval op + baselines |
 
 Earliest useful stopping points:
@@ -159,303 +130,170 @@ acceptance criteria—lives only in
 
 ## 4. Canon and criteria analysis
 
-What canon obligates (unchanged by this document): the four requirements named
-in §1; all doc-8 behavior criteria; the deferred list of doc 00 §7; the
-adversarial-review rule; the gate; the two-commit lifecycle; the Slice 11
-opening conditions.
+Canon requires the empirical threshold, client-visible advisory state,
+production-shaped application boundary, local inference endpoint, Document-8
+behavior, gate, adversarial review, and two-commit lifecycle. It does not order
+those obligations against one another. This roadmap proposes order and the
+explicit amendments in [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md); it silently
+satisfies or weakens nothing.
 
-What this reconciliation changes if adopted: development order; the addition of
-application-boundary and evaluation work with its own criteria register (§14);
-one recorded assertion — the universal transport wall — which SLICE_11 §0
-currently preserves until "Phase 5" and which §9 proposes to replace with
-capability boundaries. **That replacement requires a new sovereign ruling; it
-is decision D3 and is not made by this document.** Under D3, SC-F06's
-integration half detaches from the fetch-deletion bundle and binds to the
-model-egress capability (completed at P5, where constrained tool-argument
-generation first meets a real serving endpoint); if D3 is declined, SC-F06
-stays with the universal wall's deletion at P6. One assignment, ruled by D3's
-answer — never both.
+## 5. Strongest case for transport and client first
 
-Obligation tracking across the resequencing (nothing silently satisfied):
-SC-I05's purge half stays with the Duty of the House (P7). SC-J03/05/06/07/
-08/10 are mock-proven in Slice 11 and receive real-transport validation in P6,
-recorded in-test per G13. A P1 finding that no single coherence threshold
-serves all corpus classes would be a **Dogma VI.1 amendment proposed through
-process**, never a quiet parameterization. The application phases add
-criteria; they retire none.
+The existing sequence maximizes continuity with recorded intent, removes the
+oldest integration risks first, exposes real security/packaging constraints,
+and avoids building evaluation infrastructure around semantics that later
+transport constraints might reshape. Its cost is delayed evidence on the core
+knowledge-map thesis and longer deferral of mandatory threshold/client work.
 
-## 5. The strongest case for the existing sequence (transport → client)
+## 6. Strongest case for semantic validation first
 
-1. **Completion before exposure.** Finishing fetch transport and the real
-   scanner closes every doc-8 residue and seals Phase B as a finished box.
-2. **Risk retirement while small.** Hostile-content handling and
-   transport-boundary enforcement are the sharpest security edges; retiring
-   them first means no user-facing surface ever coexists with an unhardened
-   fetch path.
-3. **Momentum and context.** The mandate machinery is warm; transport
-   completes the arc. The application phases switch domains with new failure
-   classes and real switching cost.
-4. **No rework risk from evaluation.** Outward reach is semantics-independent;
-   nothing the offline evaluation finds can invalidate it. APIs built before
-   semantics are measured risk reshaping.
-
-Point 4 is the strongest and survives partially — answered by the two-tranche
-spine (§8, D2) rather than by rejecting the resequencing.
-
-## 6. The strongest case for the revised sequence (validation first)
-
-1. **The largest unretired risk is the thesis.** Transport risks are
-   well-understood engineering with safeguards already recorded (SLICE_11 §0).
-   The knowledge-map claim is the project's reason to exist and is untested by
-   any green gate.
-2. **The canon's own unfinished obligations point here.** The threshold cannot
-   be set without empirical work; the advisory model cannot exist without a
-   client; the topology cannot exist without a server; the local endpoint is
-   prescribed. The revised sequence does mandatory work that also produces
-   evidence.
-3. **Emergence is inert until the empirical phase happens anyway.** With the
-   threshold unseeded, no deployment can form a single Postulant.
-4. **Evidence compounds.** Offline findings shape API read models; operator
-   findings shape governed-labor exposure; both shape what transport must
-   serve.
+The revised sequence attacks the largest unknown while rework is cheapest:
+whether embeddings, links, weights, and emergence produce useful structure.
+It can kill or reshape the thesis before full UI, governed labor, and outward
+transport investment. Its cost is earlier model/space/evaluation complexity
+and a later real-fetch proof. Bounded P1-B/P2A concurrency preserves progress
+on semantics-independent spine work.
 
 ## 7. Product claims and validation order
 
-The three-claim decomposition (knowledge map / governed labor / external
-reach) is sound and the dependency graph permits map-first (§3). Boundaries
-the record must keep:
+- **Claim 1:** a private local semantic repository yields a useful,
+  correctable map. P1 can reject poor floor behavior; only P4 can establish
+  operator value. Both floor and assisted weighting are measured before any
+  thesis-level verdict.
+- **Claim 2:** governed agent labor improves the map. P5 measures one complete
+  workflow after claim 1 survives.
+- **Claim 3:** controlled outward collection expands the map without breaking
+  provenance or consent. P6 measures real transport last.
 
-- **Floor vs assisted judgment, split by claim.** Reasoner-assisted
-  *weighting* is claim-1 machinery — doc 04 §5.3 names assisted mode the
-  intended rich default of the GodHead proper — so the product verdict must
-  see it (P4 evaluates both modes; §8). Reasoner-assisted *audit and labor*
-  is claim-2 machinery and arrives at P5; the early gate measures the audit
-  **protocol** (understandable, tolerable, trustworthy as procedure) and may
-  not claim to have measured assisted-audit quality before P5.
-- **Offline vs human relevance.** Offline evaluation establishes floor
-  quality and structural behavior against labeled evidence only; it can
-  reject a poor approach early and tune parameters. It cannot establish
-  operator value. A successful offline result does not settle claim 1; only
-  P4 can.
+Correctness invariants are absolute. Offline quality, assisted-model quality,
+and operator outcomes remain separate empirical categories.
 
 ## 8. Recommended phase order, with entry and exit conditions
 
-**Decision precondition:** D3 (transport capabilities) and D4 (embedder path +
-space policy) are answered before P1 pins — P1 builds on both.
+**Decision preconditions:** D3 and D4 return before P1 pins. P1's production
+adapter cannot coexist with the universal transport wall.
 
-**P0 — Foundation closure (fixed, bounded).**
-Entry: Slice 11 delivered — **satisfied (75ad38b: adversarial round completed,
-confirmed findings closed, F1 rider shipped, gate green via producer, 161
-tests)** — and **any sovereign-pinned successor slice closed: Slice 11b (the
-Doctor & dissolution cascade, pinned at 26c0090 and amended at `ffae6a8`) is
-signed but undelivered and precedes P0**. Its two-commit lifecycle owns delivery,
-not this roadmap.
-Contents, exhaustively: (1) confirmed Slice-11 findings; (2) keyed-intake rider
-verification; (3) criteria-sweep regeneration; NARROWER and annotated halves
-classified, loop-blocking ones resolved or scheduled; (4) **fresh-database
-bootstrap test** — all migrations from zero, verifying extensions, functions,
-triggers, indexes, order; (5) test-state isolation — one chosen mechanism so
-concurrent runs cannot interfere; (6) reproducible raw/derivative filesystem
-bootstrap; (7) any defect that prevents the P1 harness or spine from running.
-Exclusions binding: no Store refactor, no performance work, no speculative
-cleanup.
-Exit: checklist complete; gate green; **the existing pipeline processes the
-synthetic smoke corpus end-to-end at crate level on the lexical floor** (a
-smoke run over existing crates, not the measurement harness); **and P1's
-harness scope, corpora, and pre-registered criteria are pinned** (register
-revision committed). P0 does not build P1's instrument; it proves the ground
-the instrument stands on.
+### P0 - Foundation closure
 
-**P1 — Offline semantic proof (two pinned slices; measurement time-boxed).**
-Entry: P0 exit; **D3 and D4 answered — a hard precondition: deferring D3
-leaves the universal wall standing, which makes the P1 adapter impossible
-(§15/D3 states the coupling)**; evaluation criteria and thresholds
-pre-registered as a committed register revision *before first measurement*;
-three corpora prepared (§12).
+Entry: Slice 11 is delivered; the signed, undelivered Slice 11b closes first.
+Contents are fixed: regenerate the criteria sweep; resolve or schedule every
+loop-blocking NARROWER/annotated half; prove fresh-database migration from zero;
+isolate test state; prove reproducible raw/derivative filesystem bootstrap; and
+fix only defects that prevent the P1 harness or application spine from running.
+No Store refactor, performance program, or speculative cleanup enters P0.
 
-*P1-A — semantic infrastructure (a pinned build slice with its own criteria;
-pass-3 ownership fix — these measurements cannot run on substrate nobody
-builds):* the **EmbeddingSpace schema and lifecycle machinery** (§10 —
-generations, space-aware backfill, index build, activation switch, `space_ref`
-propagation and the bond/measurement split of §3.1); **the production
-`godhead-model-adapter` (embedder half)** — loopback-validated,
-redirect-refusing, alias-only, budgeted; **D3's reachability walls**, landing
-in the same slice as the first governed transport dependency; **the cargo
-workspace-manifest edits that admit the new crates (pass-5 — named here in
-P1-A's own contents, not only in P2's dependency explanation): adapter,
-server skeleton, and any shared-surface manifest change land once in this
-slice, so P1-B and P2A touch disjoint files thereafter**; the candidate-evaluation context and production-path harness specified in [SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md).
+Exit: gate green; the existing lexical-floor pipeline processes the synthetic
+smoke corpus end to end at crate level; and P1's harness scope, corpora,
+preregistered criteria, and final-holdout rule are committed.
 
-*P1-B — measurement (time-boxed):* the §12 offline measurements on the
-production serving path. Optional drop-if-slipping sub-goal: an offline
-assisted-weighting probe (`weigh()` against labeled links) feeding P4's
-design. **Corpus-role discipline (pass-3 fix):** the operator corpus
-participates in P1-B for *structural, latency, and storage* behavior only —
-no relevance judgments are collected or tuned against it; its judgments are
-reserved intact for P4.
-Exit: metrics recorded (labeled + synthetic corpora for relevance/agreement;
-all three for structure/cost); threshold sensitivity and stability curves;
-storage-growth measurement begun (§12); kill/adjust/proceed verdict against
-the pre-registered bands. A finding that corpus classes need different
-thresholds becomes a proposed VI.1 amendment (§4), decided by the sovereign —
-never enacted by this phase.
-**Verdict routing:** the post-measurement checkpoint follows the P1-B ∥ P2A
-join and uses the promotion mechanism in
-[SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md). `proceed` is
-one atomic R19 policy-and-space act; `adjust` re-enters P1 under a new committed
-preregistration revision; `kill` blocks P2B and returns to sovereign
-reconciliation. The P1-B time-box is fixed at pin; overrun is a finding.
+### P1 - Offline semantic proof
 
-**P2 — Application spine (two tranches, separately pinned and reviewed).**
-Shape (pass-4 correction — pass 3 forked too early): **the fork follows
-P1-A, not P0.** P1-A lands the shared surfaces (workspace manifests, D3
-walls, space substrate, adapter) that P2A consumes; only then do P1-B and
-P2A run concurrently:
+Entry: P0 exit, D3/D4 answered, and preregistration committed before first
+measurement.
 
-    P0 → P1-A → fork{ P1-B ∥ P2A } → join → sovereign policy/space
-    checkpoint → P2B
-    (pass-6: the checkpoint node is explicit — it consumes P2A's authority
-    substrate and P1-B's evidence, and P2B's Tranche-B pin follows it)
+- **P1-A:** deliver the space/candidate substrate and production embedder
+  adapter in [SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md),
+  D3 walls, evaluation harness, and the one-time workspace manifest changes
+  later consumed by P2A.
+- **P1-B:** run time-boxed production-path measurements on labeled, synthetic,
+  and operator corpora under the role separation in Section 12. The operator
+  corpus contributes structure/cost only; its relevance judgments remain
+  unseen until P4.
 
-Concurrency discipline (D2): concurrency is a *scheduling* statement, never a
-delivery-discipline statement. P1-B and P2A are separately pinned, separately
-adversarially reviewed, separately gated slices; landings serialize through
-the gate; no interleaved unreviewed migrations or partially governed changes
-exist on the delivery branch at any moment. (The project has a recorded
-parallel-session hazard — the standing git-quiet check applies.) With the
-fork moved behind P1-A, the shared-surface qualification resolves itself:
-P1-B and P2A genuinely touch disjoint surfaces.
-Tranche A (semantics-independent; may run concurrent with P1-B): server binary
-and lifecycle; deployment config and health; upload transport and
-`commit_files`; intake status, `watch_progress`, and job/refusal/log read
-models; recovery-on-restart; the **two-substrate backup/restore procedure**
-with a restore test; and the minimum P2A authority substrate defined in
-[AUTHORITY_REGISTRIES.md](AUTHORITY_REGISTRIES.md)—authentication and local
-recovery, unforgeable contexts, structural gate, K/R/F/H envelope,
-CommandReceipt/CommandRefusal, complete registered-and-refusing handler
-skeleton, and live R19/R20 checkpoint callables. P2A exits only when an
-enrolled operator can invoke R19/R20 and unauthenticated, stale,
-hash-mismatched, and replayed commands refuse before elevation. Nothing in
-P1's semantic findings can invalidate this substrate.
-Tranche B (semantics-shaped; pins after the P1/P2A join): neighborhood, link,
-explain-link, Postulant, matrix, and retrieval read models; the override labor
-and criteria in [OVERRIDE_LINEAGES.md](OVERRIDE_LINEAGES.md); `links_for_node`;
-`list_matrices`; link-policy and threshold parameters as configuration
-surfaces; the complete ceremony, authority, envelope, receipt, and served-executor
-surface specified in [AUTHORITY_REGISTRIES.md](AUTHORITY_REGISTRIES.md).
-Exit: **Stop-3 completable end-to-end through the API alone** (curl or
-equivalent) — commit through commitment through navigation, no SQL, no
-fixtures, no crate calls. P3 translates a complete contract; it discovers no
-missing backend operations.
+Exit: record relevance/agreement, sensitivity/stability, latency/storage/cost,
+and kill/adjust/proceed verdicts against preregistered bands. Corpus-class
+threshold divergence becomes a proposed VI.1 amendment, never silent tuning.
+Verdicts follow [SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md):
+`proceed` uses R19, `adjust` creates a new preregistration/candidate state, and
+`kill` blocks P2B. The time-box does not extend itself.
 
-**P3 — Thin operator client.**
-Entry: P2 exit. Six views or equivalents (staging/commit; intake status;
-neighborhood; link explanation & correction; Postulant review/audit/consent/
-commitment; Cardinal navigation with provenance). Register retained with
-plain-technical translations throughout; the graduated-legibility ladder
-renders from the API's `legibility_state` (doc 04 §6.5).
-Exit: Stop-3 completable by the operator through the client alone.
+### P2 - Application spine
 
-**P4 — Operator evaluation and product gate (two tranches; pass-3 ownership
-fix).**
-*P4-A — integration tranche (a pinned slice, not an unowned "entry
-condition"):* the reasoner half of `godhead-model-adapter` (the
-assisted-weighting path is already built and mock-proven — SC-M03; this
-tranche wires the real mind), with its own criteria and gate.
-*P4-B — evaluation:* entry = P3 exit + P4-A delivered + operator thresholds
-confirmed unchanged since their P1-era pre-registration or amended on the
-record. Contents: repeated real use across sessions; the §12 operator
-metrics; **paired evaluation of numerical-floor and reasoner-assisted
-weighting on the same corpora and tasks** (doc 04 §5.3's dial, measured at
-last).
-Exit: the explicit decision — continue / adjust / simplify ceremony /
-reconsider the thesis. **An `adjust` verdict routes into a corrective slice
-and returns to P4-B for re-measurement; it does not advance to P5** (pass-3
-sequencing fix — adjustment without re-evaluation would advance on the very
-evidence it invalidated). **`Simplify ceremony` routes the same way (pass-4):**
-interaction-level simplification enters a corrective client slice;
-simplification that touches constitutional ceremony (the trial's shape,
-consent structure) is a **Dogma amendment proposed through process** — either
-way, P4-B re-runs before P5. **A reconsider-the-thesis verdict is reachable
-only after assisted weighting has been measured**; if assisted mode is
-unavailable, the gate may return continue/adjust/simplify but may not reject
-the thesis on floor-mode evidence alone.
+The scheduling shape is:
 
-**P5 — One governed-labor workflow.**
-Entry: P4 *continue* verdict (an `adjust` loops within P4). The Devout
-Assignment loop (brief → Instruction → Student work → Return → review →
-matrix change) exposed through the client, consuming the already-integrated
-reasoner; assisted-audit measurement opens here as its own category;
-**SC-F06's integration half completes here**, per D3's detachment ruling —
-with the pass-3 precision that this is *new adapter capability, not reuse*:
-the adapter's governed surface (embed, weigh) gains a third model operation,
-constrained `propose_call`, implementing the existing `ToolCaller` seam
-against the real endpoint; SC-F06 exercises that capability, which
-embed/weigh cannot.
-Exit: claim-2 measurements recorded against pre-registered bands.
+    P0 -> P1-A -> fork{P1-B | P2A} -> join -> sovereign checkpoint -> P2B
 
-**P6 — Real outward transport.**
-Entry: P5 exit (or P4, if the sovereign reorders on evidence). The fetch wall
-deletes only here, atomically, with the fetch-specific safeguards SLICE_11 §0
-records: transport behind `FetchEndpoint`; request/byte/time/trip-budget
-enforcement where bytes move; secret scanning before fetched bytes reach
-persistence; real scanner-provider integration; hostile MIME/redirect/
-decompression/timeout/partial-download handling; provenance across every
-transformation. (SC-F06 completes at P5 under D3; it appears here only if D3
-is declined.) Slice 11's mock-proven J criteria receive real-transport
-validation.
-Exit: claim-3 measurable end-to-end under the Deacon's gate.
+P1-B and P2A are separately pinned, reviewed, and gated; landings serialize.
+Concurrency is scheduling freedom, not permission for interleaved unreviewed
+migrations.
 
-**P7 — Deferred capabilities, separately justified.**
-Retrieval breadth, the Librarian, Duty of the House (now owed the storage-
-growth evidence §12 collects), multi-tenancy, new offices, new ceremonial
-states, general graph authorship — each enters only by its own justification.
+- **P2A:** server lifecycle, deployment/health, upload and `commit_files`,
+  progress/job/refusal/log views, restart recovery, two-substrate restore test,
+  and the minimum authority/checkpoint substrate in
+  [AUTHORITY_REGISTRIES.md](AUTHORITY_REGISTRIES.md).
+- **P2A exit:** an enrolled operator can invoke R19/R20 end to end; bad auth,
+  stale state, hash mismatch, and replay refuse before elevation.
+- **Checkpoint:** consumes P1-B evidence and P2A authority. R19 either promotes
+  the exact candidate or refuses; non-proceed routes remain visible.
+- **P2B:** semantic read models, neighborhood/retrieval, the work in
+  [OVERRIDE_LINEAGES.md](OVERRIDE_LINEAGES.md), complete ceremony/API surface,
+  and the served executors in
+  [AUTHORITY_REGISTRIES.md](AUTHORITY_REGISTRIES.md).
 
-## 9. Transport-capability proposal (requires a new sovereign ruling — D3)
+Exit: Stop-3 is completable through the API alone, from commit through
+Cardinal navigation, with no SQL, fixture, or crate call.
 
-The current wall bans transport *dependencies* workspace-wide. It conflates
-three capabilities with different risks:
+### P3 - Thin operator client
 
-1. **Inbound application transport** — client → server. Owner: a
-   `godhead-server` crate, the composition root; it may depend on the
-   application layer and domain; **no domain, store, or agent crate may depend
-   on it**.
-2. **Model egress** — backend → configured local inference endpoint. Owner: a
-   `godhead-model-adapter` crate; it may depend on an HTTP client; it
-   implements `godhead-ml`'s `Embedder`/`Reasoner` traits and **exposes model
-   operations only** — no generic request surface. The governed operation set
-   grows by phase: `embed` (P1-A), `weigh` (P4-A), constrained `propose_call`
-   implementing the `ToolCaller` seam (P5, where SC-F06 completes).
-   `godhead-ml` does not depend on it; adapters are constructed and rostered
-   only in the composition root.
-3. **Fetch egress** — collection labor → externally named resources. **No
-   fetch-related crate may have any dependency path to any transport
-   implementation until P6's atomic commit.** Deletion conditions preserved
-   verbatim (§8/P6).
+Expose staging/commit, intake status, neighborhood, link explanation and
+correction, Postulant trial/consent, and Cardinal navigation/provenance. Render
+technical translations and `legibility_state`; require no lore education.
+Exit: Stop-3 is completable by the operator through the client.
 
-Enforcement by **dependency-graph reachability, not name exceptions**: an arch
-test consuming `cargo metadata`'s resolved graph (transitive closure) asserts
-(a) inbound-server packages reachable from `godhead-server` only; (b)
-HTTP-client packages reachable from `godhead-model-adapter` only; (c) zero
-transport packages reachable from fetch-surface crates; (d) `godhead-ml` does
-not reach the adapter; (e) no domain/store/agent crate reaches the server.
-Token greps remain as depth beneath the graph test.
+### P4 - Operator product gate
 
-Localhost constraints: endpoint identities persist by alias only (Law
-XV/XIII.2); alias→URL resolution in deployment configuration, never in
-records; scheme http(s), host loopback-only during the localhost phase;
-redirects refused; timeouts and response-size ceilings in the adapter.
+- **P4-A:** connect the real reasoner to the already mock-proven assisted
+  weighting path.
+- **P4-B:** measure repeated use, the Section-12 operator metrics, ceremony
+  cost, and paired floor/assisted weighting on the same corpora/tasks.
 
-**Timing (revised, pass 2):** D3 is decided **before P1 pins**, and the
-reachability walls land in the same slice that introduces the first governed
-transport dependency (P1's adapter). This amends two RULED arch tests
-(`no_outward_transport_wall`, `sc_b04_workspace_ipc_scan` — the latter gains
-the server carve-out with its inverse assertion), supersedes SLICE_11 §0's
-universal clause while preserving its fetch-deletion conditions, and
-**detaches SC-F06's integration half from the fetch bundle, binding it to the
-model-egress capability (P5)**. Law III.1 and Law V.4 are untouched; the
-recorded author-intent reading is that III.1 binds agents, not the operator's
-own client/server surface.
+Exit is `continue`, `adjust`, `simplify ceremony`, or `reconsider thesis`.
+Adjust/simplify returns to P4-B after a corrective slice; constitutional
+simplification uses the amendment process. Thesis rejection is unreachable
+until assisted weighting has actually been measured.
+
+### P5 - One governed-labor workflow
+
+Expose the Devout Assignment loop through the client and add the real
+`propose_call` adapter capability for SC-F06. Assisted-audit measurement begins
+here. Entry requires P4 `continue`; exit records claim-2 measurements.
+
+### P6 - Real outward transport
+
+Delete the fetch wall only in one atomic slice: `FetchEndpoint`, byte/time/trip
+budgets at transport, secret scanning before persistence, real scanner,
+hostile MIME/redirect/decompression/timeout/partial-download handling, and
+provenance across every transform. Exit makes claim 3 measurable under the
+Deacon's gate.
+
+### P7 - Separately justified deferred capability
+
+Retrieval breadth, Librarian, Duty of the House, multi-tenancy, new offices,
+new ceremony, and general graph authorship each require their own evidence and
+pin.
+
+## 9. Transport-capability proposal (D3)
+
+The current workspace wall conflates three capabilities:
+
+1. **Inbound application transport:** client to `godhead-server`, the sole
+   composition root. Domain, Store, and agent crates never depend on it.
+2. **Model egress:** `godhead-model-adapter` exposes only governed `embed`,
+   `weigh`, and later `propose_call` operations to configured local aliases.
+   No generic request surface crosses into domain/ML crates.
+3. **Fetch egress:** no dependency path reaches transport until P6's atomic
+   wall deletion and its byte/time/trip, secret, redirect, MIME,
+   decompression, partial-download, and provenance safeguards.
+
+Reachability tests prove allowed and forbidden dependency paths, not merely
+crate names. The model-adapter and its wall land together in P1-A; server
+transport receives the corresponding narrow carve-out; fetch remains sealed.
+SC-F06's real integration moves to model egress at P5.
+
+D3 explicitly supersedes Slice 11's universal dependency clause and amends the
+two affected architecture tests while preserving Law III.1, Law V.4, and every
+fetch-deletion condition. Deferring D3 makes D1/P1 impossible unless P6 moves
+first or doc 04's separate-process model architecture is amended.
 
 ## 10. Space promotion, trial, and evidence mechanisms
 
@@ -632,6 +470,6 @@ development register remains separate.
 
 ## 17. Review history
 
-Passes 2â€“6, including every visible retraction and historical HEAD claim, moved
-verbatim to [REVIEW_LEDGER.md](REVIEW_LEDGER.md). The ledger is historical;
-current mechanisms live only in their owning annexes.
+Passes 2–6, including every visible retraction and historical HEAD claim, moved
+verbatim to [REVIEW_LEDGER.md](REVIEW_LEDGER.md); Pass 7 is appended there.
+The ledger is historical; current mechanisms live only in their owning annexes.
