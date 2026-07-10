@@ -72,3 +72,20 @@ practiced, now provable without a transcript. Slices 1–10 recorded spec and
 delivery in one commit; from Slice 11 the two are distinct, and the producer
 (`scripts/gate_report.py`) remains the only voice of the gate in the delivery
 half.
+
+## 6. Vocabulary reconciliation (the returned decisions, 2026-07-10)
+
+The desk's old coarse phase words were retired at the 2026-07-10 sitting; the
+D1 phase sequence (`ROADMAP_RECONCILIATION.md` §15.1) names their successors.
+Both lanes use the new words, so no one says "Phase 5" again and means two
+different things:
+
+| Old (desk/CLI usage) | New (D1) |
+|---|---|
+| "Phase 4 — SC-C07 ledger sweep" | absorbed: entries live in the R-registry rows and their arch-pins |
+| "Phase 5 — transport + endpoints + wall deletion + SC-F06 half" | **split**: model egress → P1-A (adapter) and P5 (`propose_call`, SC-F06 half); fetch egress + wall deletion → **P6** |
+| "Phase 6 — desktop client" | **P3** (thin client), P4 (product gate) |
+| SC-J09 fetch half re-arm | P6 |
+| SC-I05 purge half / Duty of the House | P7, now with §12's storage-growth *evidence* feeding it |
+| retire's shape-guard → actor-class upgrade (11b residual) | P2A (authority substrate) |
+| deploy_doctor atomicity residual (11b) | P2B (R17b all-or-nothing invariant) |
