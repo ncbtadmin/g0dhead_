@@ -1,6 +1,6 @@
 # Trial and Evidence Lifecycle
 
-**Status:** Analysis-only; non-canonical and proposal-only until D4 returns.
+**Status:** Analysis-only; non-canonical. D4 returned 2026-07-10: adopted a+b as amended — riders: ADR-2's final DDL and Appendix-A naming return through the desk before adoption; the P1-B time-box and its overrun-is-a-finding clause enter the criteria register as a citable rule.
 
 - **Scope:** Trial-cycle identity, evidence manifests, validity, atomic opening, activation-time Postulant disposition, and citations through reports, proposal, consent, execution, and Cardinal.
 - **Owning decisions:** D4; D7 where sovereign disposition and command authority intersect.

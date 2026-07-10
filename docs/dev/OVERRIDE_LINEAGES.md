@@ -1,6 +1,6 @@
 # Override Lineages and Release Semantics
 
-**Status:** Analysis-only; non-canonical and proposal-only until D8 returns.
+**Status:** Analysis-only; non-canonical. D8 returned 2026-07-10: adopted as amended — riders: the IV.1/IV.5/SC-C01 constitutional amendment text is drafted with the desk's co-signature; the criteria name where the substrate-visible IV.1 wall lives once `user_overridden` leaves the protected payload.
 
 - **Scope:** Bond/measurement separation, override compatibility, lineage concurrency, petitions, sovereign transition plans, release, effective-source selection, and P2B criteria.
 - **Owning decisions:** D8; D4 only where measurement records and embedding spaces intersect.

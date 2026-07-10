@@ -1,6 +1,6 @@
 # Space Promotion and Epochs
 
-**Status:** Analysis-only; non-canonical and proposal-only until D4 returns.
+**Status:** Analysis-only; non-canonical. D4 returned 2026-07-10: adopted a+b as amended — riders: ADR-2's final DDL and Appendix-A naming return through the desk before adoption; the P1-B time-box and its overrun-is-a-finding clause enter the criteria register as a citable rule.
 
 - **Scope:** Embedding-space identity and lifecycle, generation storage, candidate policy and certification, change cursors, bounded cutover, atomic promotion, and model-change behavior.
 - **Owning decisions:** D4; D1 for checkpoint placement; D7 for checkpoint authority.

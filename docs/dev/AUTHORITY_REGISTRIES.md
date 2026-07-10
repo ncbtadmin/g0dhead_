@@ -1,6 +1,6 @@
 # Application Authority Registries
 
-**Status:** Analysis-only; non-canonical and proposal-only until D7 returns. Signed Slice 11b rulings are labeled separately from D7 proposals.
+**Status:** Analysis-only; non-canonical. D7 returned 2026-07-10: adopted as amended — riders: the R17a/b pairing-authority pricing (A.10/manual amendment) is acknowledged and travels with its phase. Signed Slice 11b rulings are labeled separately from D7 proposals.
 
 - **Scope:** Application boundary, authentication and authority classes, reserved-operation and authentication-control registries, command envelopes/receipts, served executors, and Slice 11b authority surfaces.
 - **Owning decisions:** D7; D1/D4 where the post-join checkpoint consumes this substrate; D8 for override command shapes.

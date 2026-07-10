@@ -457,6 +457,46 @@ and acceptance-criteria mechanism in
 This sheet does not declare itself answerable. Current review status and bounded
 verdicts live in [REVIEW_LEDGER.md](REVIEW_LEDGER.md).
 
+### 15.1 The decisions, returned — 2026-07-10
+
+The sheet was answered by the sovereign at the desk sitting of 2026-07-10
+(operative record: `DECISIONS_RETURNED_D1-D8.md`, desk outputs, sha256
+`193fc12d…9279`). The answers, verbatim — the riders are part of the answers,
+not commentary:
+
+>   D1  ADOPT — the P0 pin enumerates its loop-blocking NARROWER/annotated rows.
+>   D2  ADOPT — worktree-per-lane is named as the concurrency mechanism: one
+>       worktree per lane, one branch per lane, landings serialize through the
+>       gate.
+>   D3  ADOPT — the three-boundary refactor supersedes the universal wall. The
+>       lockfile-level denylist is KEPT on fetch-egress until P6's atomic
+>       deletion; the SLICE_11 §0 supersession is recorded by ADDENDUM to that
+>       file, never by edit.
+>   D4  ADOPT a+b — production adapter and the space/candidate/trial/evidence
+>       mechanisms as amended. ADR-2's final DDL and Appendix-A naming return
+>       through the desk before adoption. The P1-B time-box and its
+>       overrun-is-a-finding clause enter the criteria register as a citable
+>       rule.
+>   D5  DEV-REGISTER — `docs/dev/APPLICATION_CRITERIA.md`, non-canonical header,
+>       append-ledgered preregistration, promotion path into Document 8.
+>   D6  ADOPT — P0 contents, exclusions, and exit as written.
+>   D7  ADOPT — authority classes, registries, envelopes, receipts, executors
+>       as amended; the R17a/b pairing-authority pricing (A.10/manual amendment)
+>       is acknowledged and travels with its phase.
+>   D8  ADOPT — lineages, occurrences, transition plans, four-kind release, and
+>       selectors as amended. The IV.1/IV.5/SC-C01 constitutional amendment text
+>       is drafted with the desk's co-signature. The criteria name where the
+>       substrate-visible IV.1 wall lives once `user_overridden` leaves the
+>       protected payload.
+>
+> Nothing here delivers implementation, lands a migration, or amends canon by
+> itself. Adoption authorizes the phases, the ADRs, and the amendment drafting —
+> each through its own recorded process, each at its owning phase.
+
+Adoption changed the decisions' status, not the documents' authority class:
+this file and its annexes remain analysis-only and non-canonical. Each annex's
+status line records its owning decision's return.
+
 ## 16. ADR extraction (after decisions return)
 
 Only accepted mechanisms leave this proposal for independently supersedable
