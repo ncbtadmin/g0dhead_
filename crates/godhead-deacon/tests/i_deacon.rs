@@ -1487,3 +1487,94 @@ async fn admit_is_idempotent_under_retry() {
     let done = store.get_quarantine_item(item_ref).await.expect("item");
     assert_eq!(done.admitted_node_ref, Some(node_id));
 }
+
+/// V.4 closure (b) (SLICE_11 §4; migration 0018): a job that has deposited
+/// external material into quarantine may not then write to the internal
+/// namespace — even a BRIEF-rooted depositor cannot launder its own bytes into
+/// a node. Closure (a) walls mandate-rooted fetchers by charter; (b) walls any
+/// depositor by deed, closing the brief-rooted seam the opening round found.
+#[tokio::test]
+async fn v4_closure_bars_a_brief_rooted_depositor() {
+    let Some(store) = store().await else { return };
+    // A brief-rooted RUNNING job — brief_ref is a plain brief, NOT a mandate,
+    // so closure (a)'s mandate wall does not fire for it.
+    let brief = Uuid::now_v7();
+    let job = store
+        .create_job(&JobDraft {
+            agent_type: AgentType::Student,
+            auditor_name: None,
+            tier: Some(Tier::Devout),
+            input_refs: vec![],
+            env_ref: None,
+            brief_ref: Some(brief),
+            endpoint_alias: None,
+            manual_version: Version::new(1, 0, 0),
+            budgets: Budgets {
+                max_wall_ms: 600_000,
+                max_tool_calls: 10,
+                max_tokens: 100,
+            },
+        })
+        .await
+        .expect("job");
+    let job = store
+        .transition_job(job.job_id, job.revision, JobStatus::Leased)
+        .await
+        .unwrap();
+    let job = store
+        .transition_job(job.job_id, job.revision, JobStatus::Running)
+        .await
+        .unwrap();
+
+    // It lawfully deposits external material into quarantine (brief-rooted).
+    let item_ref = Uuid::now_v7();
+    store
+        .append_chain_entry(
+            job.job_id,
+            &ChainEntryDraft {
+                chain_ref: item_ref,
+                kind: ChainEntryKind::Brief,
+                mandate_ref: None,
+                prompt_or_reason: "a brief-rooted external arrival".into(),
+                produced: vec![item_ref],
+            },
+        )
+        .await
+        .expect("brief chain root stands (SC-J09)");
+    store
+        .quarantine_deposit(
+            job.job_id,
+            item_ref,
+            &QuarantineDraft {
+                mandate_ref: None,
+                brief_ref: Some(brief),
+                filename: "ext.txt".into(),
+                declared_type: "txt".into(),
+                content: b"external bytes".to_vec(),
+            },
+        )
+        .await
+        .expect("a brief-rooted deposit is lawful");
+
+    // Closure (b): the depositor may NOT now write a node — its external bytes
+    // cannot be laundered into the internal namespace.
+    let node_id = Uuid::now_v7();
+    let err = store
+        .create_node(
+            job.job_id,
+            node_id,
+            &NodeDraft {
+                filename: "laundered.txt".into(),
+                filetype: "txt".into(),
+                size_bytes: 13,
+                raw_path: format!("raw/{node_id}"),
+                raw_sha256: sha256_hex(b"external bytes"),
+            },
+        )
+        .await
+        .expect_err("closure (b) bars the depositor from the internal namespace");
+    assert!(
+        err.to_string().contains("quarantine namespace"),
+        "the V.4 wall (b) fired: {err}"
+    );
+}

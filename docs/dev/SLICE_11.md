@@ -289,6 +289,24 @@ budget breaks in practice, the **only** severable piece is the Doctor/orphaning
 the pairing/orphaning machinery rather than on the fetch path. The F1 rider is
 **not** severable (condition 2 names it from birth). Nothing else is.
 
+**SC-J08 SEVERED (2026-07-10, invoking this clause).** The budget broke in
+practice: the Doctor's deployment maps cleanly onto existing machinery (a Doctor
+is a Canon Teacher env, Holy Standard §4.3; it pairs to the Canon Student via
+`form_pairing`'s CanonicalInstruction kind, and the not-LIVE→`ENV_INVALID`
+validation is a pre-check), but the **orphan cascade** — dissolving the Canon
+Student environment must drive the Doctor's to `ORPHANED`, with no silent
+revival — rests on the environment-**dissolution** path (matrix decommission),
+which is not yet built and whose topology carries real risk to add correctly.
+Rather than rush that into adversarially-reviewed code at the end of a long
+build, SC-J08 moves whole to its own follow-up slice (**Slice 11b — the Doctor**):
+deploy_doctor (validate LIVE Canon Student → `ENV_INVALID` else; establish the
+Canon Teacher; form the CanonicalInstruction pairing), the dissolve→orphan
+cascade over that pairing, and the no-revival rule. This slice delivers the rest
+of Section J behavior (SC-J03/J04/J05/J06/J07/J09-fetch/J10 + the SC-C07 mandate
+entry + the V.4 both-closures); the delivery ledger (§9) carries the severance
+in its criteria account, and CRITERIA_SWEEP marks SC-J08 DEFERRED with this
+pointer (G13). Section J is *behaviorally* complete but for the Doctor's loop.
+
 ## 8. Gate & delivery protocol
 
 The gate is doc 00 §4's three commands via the producer (`scripts/gate_report.py`

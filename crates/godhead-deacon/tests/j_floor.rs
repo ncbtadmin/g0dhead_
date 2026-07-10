@@ -343,6 +343,42 @@ async fn sc_j01_mandates_human_authored() {
     assert_eq!(mandates_for(&store, matrix).await, 1);
 }
 
+/// SC-C07 (mandate-authoring entry, claimed per G9): IV.4's "authoring fetch
+/// mandates" is a human-reserved action. The authorship SURFACE takes a human
+/// actor string and no job identity — an agent-shaped author (a job uuid),
+/// even through the lawful `author_mandate` path, is rejected at the wall. The
+/// claim-by-argument (SLICE_03 §3's SC-C07 ledger) becomes a claim-by-test now
+/// that mandates are exercised in behavior (Slice 11).
+#[tokio::test]
+async fn sc_c07_mandate_authoring_entry() {
+    let Some(store) = store().await else { return };
+    let matrix = plant_cardinal_matrix(&store).await;
+
+    // The human hand authors through the lawful surface.
+    store
+        .author_mandate(
+            "sovereign",
+            &writ(matrix, vec![uri("https://example.org/human")]),
+        )
+        .await
+        .expect("a human actor authors");
+
+    // An agent-shaped author — a job uuid through the SAME lawful surface — is
+    // rejected: authorship carries no job identity (IV.4).
+    let job = running_job(&store, AgentType::Slave).await;
+    let err = store
+        .author_mandate(
+            &job.job_id.to_string(),
+            &writ(matrix, vec![uri("https://example.org/agent")]),
+        )
+        .await
+        .expect_err("an agent identity never authors a mandate");
+    assert!(
+        err.to_string().contains("GATE_BYPASS_ATTEMPT"),
+        "the agent-author wall fired: {err}"
+    );
+}
+
 /// SC-J02 — writ concreteness (the sovereign criterion; C.4): a demand
 /// that is query-shaped or unresolvable fails AT AUTHORSHIP, before any
 /// trip. The six adversarial fixtures from the criterion's text are each

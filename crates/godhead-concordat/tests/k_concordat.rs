@@ -315,6 +315,28 @@ async fn assert_clause(store: &PgStore, draft: &InstructionDraft, clause: char) 
     }
 }
 
+/// SC-J04 (Section-J-named; the criterion is MET by Slice 8's lint clause (f)
+/// — the G13 model, claimed here where Section J speaks): an Instruction
+/// carrying any fetch step fails Executability-Lint clause (f) and is never
+/// written. Outward acts are the sovereign's, mandate in hand (Handbook §1.4;
+/// Standard §1.3f); fetch steps inside Instructions arrive, if ever, only with
+/// the deferred breadth system.
+#[tokio::test]
+async fn sc_j04_fetch_step_never_lints() {
+    let Some(store) = store().await else { return };
+    let (_m, env, node) = devout_teacher(&store).await;
+    let mut fetchy = conforming(env, node);
+    fetchy.steps[0].action = CapabilityAction::FetchPerWrit;
+    // The lint fails clause (f)...
+    assert_clause(&store, &fetchy, 'f').await;
+    // ...and the write refuses, persisting nothing (v1 prohibition).
+    let err = write_instruction(&store, &fetchy).await;
+    assert!(
+        matches!(err, Err(ConcordatError::LintFailed(_))),
+        "a fetch step never writes: {err:?}"
+    );
+}
+
 /// SC-K02 â€” SOVEREIGN_JUDGMENT is excluded from the machine-checkable
 /// floor; an all-sovereign Instruction fails lint; a mix passes.
 #[tokio::test]
