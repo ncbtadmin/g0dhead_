@@ -158,6 +158,41 @@ Budget fallback: if the `sources` field breaks the slice budget, fall back to
 deferring canon collection (the earlier option) with a G13 annotation — but the
 record says build it.
 
+## 0-A — superseded by D3 (2026-07-10)
+
+Pass-7 decision D3 returned ADOPTED on 2026-07-10 (the answers verbatim in
+`ROADMAP_RECONCILIATION.md` §15.1; the transport-capability proposal is its
+§9). It supersedes §0's *universal* dependency wall as the boundary mechanism.
+Per D3's own rider this supersession is recorded by ADDENDUM, never by edit —
+the §0 text above is history and stands untouched. What survives, what moves,
+what replaces:
+
+- **What survives — the four-part atomic-deletion rule reattaches to
+  fetch-egress, enlarged.** §0's rule — the wall deletes only in the one
+  commit that lands, together: transport behind the `FetchEndpoint` trait,
+  trip-budget enforcement at the transport layer, the Law XV scan of fetched
+  bytes ahead of the quarantine write, and the integration half — reattaches
+  to the **fetch-egress boundary**, now carrying P6's enlarged safeguard list
+  (byte/time/trip, secret, redirect, MIME, decompression, partial-download,
+  and provenance safeguards). What §0 called "Phase 5" splits in the returned
+  vocabulary (the reconciliation table in `DISCIPLINE.md`): fetch egress and
+  the wall deletion belong to **P6**.
+- **What moves — SC-F06's integration half.** The real-endpoint half of the
+  tool-calling criterion moves to **model egress at P5** (`propose_call`),
+  and its G13 in-test annotation travels with it: the unmet half re-arms at
+  P5, not at the fetch door.
+- **What replaces the single wall — three reachability-tested boundaries.**
+  Inbound application transport (client → `godhead-server`, the sole
+  composition root); model egress (`godhead-model-adapter` exposing only
+  governed `embed`/`weigh`/later `propose_call`); fetch egress (no dependency
+  path reaches transport until P6's atomic deletion). Reachability tests
+  prove allowed and forbidden dependency paths, not merely crate names.
+- **What stays put — the lockfile belt.** The lockfile-level denylist
+  (`no_outward_transport_wall`: Cargo.toml + Cargo.lock) is KEPT on
+  fetch-egress until P6's atomic deletion. The D3 refactor amends the two
+  affected architecture tests while preserving Law III.1, Law V.4, and every
+  fetch-deletion condition above.
+
 ---
 
 # Part II — the pinned spec (§1+), presented to the desk 2026-07-09
