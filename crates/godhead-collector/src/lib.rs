@@ -429,10 +429,14 @@ pub async fn assemble_corpus_manifest<S: Store>(
     let outcome =
         validate_coverage(collected, &clauses, &coverage).map_err(CollectorError::Manifest)?;
     if let Err(gap) = outcome {
-        let unmet_indices: Vec<usize> = clauses
+        // Name the unmet clauses by their POSITION in the coverage map — which
+        // validate_coverage matched to the clauses in order — never by clause
+        // TEXT, which would misname a COVERED clause that happens to share text
+        // with an unmet one (delivery review: duplicate-clause misreport).
+        let unmet_indices: Vec<usize> = coverage
             .iter()
             .enumerate()
-            .filter(|(_, c)| gap.unmet_clauses.contains(c))
+            .filter(|(_, e)| e.item_refs.is_empty())
             .map(|(i, _)| i)
             .collect();
         store

@@ -451,7 +451,12 @@ async fn running_student(store: &PgStore, tier: Tier) -> JobRecord {
         .unwrap()
 }
 
-async fn authored_canon(store: &PgStore, matrix: Uuid, clauses: Vec<String>) -> MandateRecord {
+async fn authored_canon(
+    store: &PgStore,
+    matrix: Uuid,
+    clauses: Vec<String>,
+    sources: Vec<WritTarget>,
+) -> MandateRecord {
     let (_job, env) = establish(store, EnvKind::Teacher, Tier::Canon, matrix)
         .await
         .expect("a live Teacher room");
@@ -463,7 +468,7 @@ async fn authored_canon(store: &PgStore, matrix: Uuid, clauses: Vec<String>) -> 
                 teacher_env_ref: Some(env.env_id),
                 matrix_ref: None,
                 demands: MandateDemands::CanonClauses(clauses),
-                sources: vec![],
+                sources,
                 trip_budget: json!({ "max_items": 16 }),
             },
         )
@@ -539,6 +544,7 @@ async fn sc_j07_corpus_coverage_gap_duty() {
         &store,
         matrix,
         vec!["clause one".into(), "clause two".into()],
+        vec![],
     )
     .await;
 
@@ -600,4 +606,95 @@ async fn sc_j07_corpus_coverage_gap_duty() {
         JobStatus::Refused,
         "a covered canon does not refuse"
     );
+}
+
+// ---- the canon-fetch path (the §0.2 ruling), exercised end to end ----
+
+/// SC-J05 for the CANON kind (the §0.2 ruling: "SC-J05's set-equality property
+/// covers both kinds"). A FETCH_PER_CANON trip fetches the canon's concrete
+/// `sources` — exactly, and NEVER its freeform `demands` clauses, which are the
+/// coverage surface, not fetch targets.
+#[tokio::test]
+async fn sc_j05_canon_sources_fetch() {
+    let Some(store) = store().await else { return };
+    let matrix = plant_cardinal_matrix(&store).await;
+    let canon = authored_canon(
+        &store,
+        matrix,
+        vec!["every text of the atlas".into(), "the appendices".into()],
+        vec![
+            uri("https://example.org/canon-a"),
+            uri("https://example.org/canon-b"),
+        ],
+    )
+    .await;
+    let trip = trip_job(&store, canon.mandate_id, Tier::Canon).await;
+    let mock = MockFetcher::new();
+    let summary = run_trip(&store, &mock, trip.job_id)
+        .await
+        .expect("a bound canon trip runs");
+
+    let asked: HashSet<String> = mock
+        .requested()
+        .iter()
+        .map(|l| l.value().to_string())
+        .collect();
+    assert_eq!(
+        asked,
+        locator_values(&canon),
+        "the canon trip fetched its sources, exactly"
+    );
+    assert!(
+        !asked.contains("every text of the atlas"),
+        "a freeform clause is never a fetch target (§0.2)"
+    );
+    assert_eq!(summary.deposited.len(), 2, "both canon sources deposited");
+}
+
+/// SC-J02 for the CANON kind: a canon's `sources` are held to the IDENTICAL
+/// wall as writ targets — a query-shaped, malformed, or unresolvable source
+/// fails at AUTHORSHIP, before any trip (the §0.2 ruling).
+#[tokio::test]
+async fn sc_j02_canon_sources_concreteness() {
+    let Some(store) = store().await else { return };
+    let matrix = plant_cardinal_matrix(&store).await;
+    let (_job, env) = establish(&store, EnvKind::Teacher, Tier::Canon, matrix)
+        .await
+        .expect("a live Teacher room");
+    let canon_with = |source: WritTarget| MandateDraft {
+        kind: MandateKind::Canon,
+        teacher_env_ref: Some(env.env_id),
+        matrix_ref: None,
+        demands: MandateDemands::CanonClauses(vec!["a clause".into()]),
+        sources: vec![source],
+        trip_budget: json!({ "max_items": 4 }),
+    };
+    for bad in [
+        WritTarget {
+            locator: Locator::Uri("find things about cats".into()),
+            note: None,
+        },
+        WritTarget {
+            locator: Locator::Uri("not-a-uri".into()),
+            note: None,
+        },
+        WritTarget {
+            locator: Locator::SourceId("unknown_src".into()),
+            note: None,
+        },
+    ] {
+        let err = store
+            .author_mandate("sovereign", &canon_with(bad))
+            .await
+            .expect_err("a query-shaped/unresolvable canon source fails at authorship");
+        assert!(
+            matches!(err, StoreError::ValidationFailed(_)),
+            "canon source under SC-J02: {err}"
+        );
+    }
+    // A resolvable URI source authors fine — the wall admits the concrete.
+    store
+        .author_mandate("sovereign", &canon_with(uri("https://example.org/ok")))
+        .await
+        .expect("a resolvable canon source authors");
 }

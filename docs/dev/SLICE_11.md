@@ -323,3 +323,83 @@ slices. On sign-off: build against the `FetchEndpoint` mock (wall standing),
 carry the F1 rider from the first commit, close the V.4 seam both ways (§4),
 and bring the delivery ledger to this same desk. The no-HTTP wall is not this
 slice's to delete.*
+
+---
+
+## 9. Delivery ledger (2026-07-10)
+
+Slice 11's Section-J behavior is delivered on `master`, gate green, against live
+Railway Postgres. The delivery appends here as its own commit — the two-commit
+lifecycle (DISCIPLINE.md §5): the spec (§0–§8) crossed the desk before code; this
+ledger crosses it at delivery.
+
+### 9.1 Gate — from the producer
+
+`scripts/gate_report.py`: **PASS (3 steps)** — fmt clean, clippy clean, `cargo
+test --workspace --no-fail-fast` **161 passed, 0 failed, 0 ignored across 47
+binaries**, zero DATABASE_URL skips. (Migration 0018 required a godhead-store
+recompile to embed — sqlx embeds migrations at compile time — so its increment's
+gate ran a full rebuild; noted so the next migration-only change forces the same.)
+
+### 9.2 The build — five gated commits, spec before code
+
+The build opened with the adversarial round (§0.1 → pre-11 riders `dce06c2`) and
+the signed-off pin (`8bb56dd`), then proceeded in gated, pushed increments:
+
+| # | Commit | What |
+|---|---|---|
+| 1 | `efc9b74` | F1 keyed-intake idempotency (the rider named from birth): `commit_file_with_id` + a derived `admission_node_id` (uuid v5) so `admit` converges instead of orphaning a duplicate CLEAN atom. |
+| 2 | `aa40bfd` | the fetch-execution core + the canon-`sources` ruling (§0.2): the `FetchEndpoint` trait + instrumented `MockFetcher`, `run_trip`, and the unified writ/canon locator set (migration 0017). |
+| 3 | `7956094` | the collection manifests — `validate_sought`/`validate_coverage` (pure, unit-tested) + the assembly labors + the canon gap duty. |
+| 4 | `791ddbd` | the V.4 both-closures (migration 0018), the SC-J04 lint entry, the SC-C07 mandate-authoring entry; SC-J08 severed. |
+
+### 9.3 Criteria delivered
+
+Against the `FetchEndpoint` mock, the no-HTTP wall standing throughout:
+**SC-J03** (fetch binds a resolving mandate, kind↔tier), **SC-J04** (fetch step
+never lints), **SC-J05** (the headline property — no text widens the fetched set
+beyond the mandate's locators, proven via the mock's own record over a fuzzed
+adversarial corpus, both writ AND canon kinds), **SC-J06** (CollectionManifest
+maps or flags, no padding), **SC-J07** (CorpusManifest coverage + the gap duty
+refusal), **SC-J09 fetch-half** (chain appended in flight, claimed through a real
+trip), **SC-J10** (garbage refused at source, never laundered), the **SC-C07**
+mandate-authoring entry, and the **V.4 both-closures** (§4). The **F1** rider
+shipped in the first commit.
+
+**SC-J08 (the Doctor) SEVERED to Slice 11b** (§7): the deployment maps onto
+existing pairing machinery, but its orphan cascade rests on the unbuilt
+environment-dissolution path; rather than rush that topology into reviewed code,
+it moves whole. The sweep marks it DEFERRED with the §7 pointer. Section J is
+behaviorally complete but for the Doctor's loop.
+
+### 9.4 Adversarial review — before delivery (the standing rule)
+
+A four-lens adversarial review ran over the new surfaces (fetch labor, canon
+sources, manifests + gap duty, V.4 closure + F1), each finding independently
+refuted by a three-lens skeptic panel (10 agents, no errors). Two findings
+survived — **both confirmed, both fixed before delivery**; the fetch-labor and
+V.4/F1 lenses surfaced nothing.
+
+| Finding | Severity | Fix |
+|---|---|---|
+| The v1 canon-fetch path — the slice's marquee §0.2 ruling — shipped with **zero test coverage**: every mandate fixture passed `sources: []`, so the canon branches (`trip_locators` Canon arm, canon-source shape validation, canon source_id resolution) executed with a non-empty `sources` in NO test, and SC-J05's "covers both kinds" claim was provably unmet (only writ trips were fuzzed). A regression defeating the canon-source wall would have passed green. | **major (3/3)** | **Fixed**: `sc_j05_canon_sources_fetch` (a FETCH_PER_CANON trip fetches its `sources` exactly, never the freeform clauses — the canon analogue of the writ property) and `sc_j02_canon_sources_concreteness` (query-shaped / malformed / unknown-source_id canon sources each fail at authorship, the identical wall). The canon branches are now exercised; SC-J05 truly covers both kinds. |
+| The gap-duty refusal named unmet clauses by re-deriving indices from clause **text** membership, so a canon with duplicate clause text would name a *covered* clause's index too (`"1 of 2 uncovered (indices [0,1])"`). Safe direction (still refuses; no holed manifest), but the sovereign's only signal (Law XV forbids the text) pointed at the wrong clause. | **minor (3/3)** | **Fixed**: the unmet indices are computed from the coverage map's own empty POSITIONS (`assemble_corpus_manifest`), which `validate_coverage` matched to the clauses in order — never by text. |
+
+Both fixes are gate-verified in this delivery. No finding was a reachable
+runtime bypass; the fetch-labor lens confirmed no text reaches the fetch call,
+and the V.4/F1 lens confirmed closure (b) and the keyed-intake convergence hold.
+
+### 9.5 Criteria sweep — regenerated
+
+`docs/dev/criteria_sweep.py`: **99 criteria** (PENDING 81, NARROWER 8, MINTED 5,
+DEFERRED 1). The Section-J behaviors moved **DEFERRED → PENDING** now that the
+collector/concordat/deacon suites cite them; **SC-J08 alone stands DEFERRED** (the
+severed Doctor). Only that one deferral remains between Phase B and full
+Section-J coverage.
+
+### 9.6 Doc amendment riding with delivery
+
+Doc 07 §C.4 gained the CANON `sources` field (author-sanctioned per the §0.2
+ruling): a canon's freeform `demands` clauses stay the coverage surface, and its
+`sources` name the concrete v1 targets the trip fetches under the identical
+SC-J02 wall — breadth (discovering sources from clauses) stays deferred.
