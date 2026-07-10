@@ -13,33 +13,33 @@ ledger + PROMPT_G_RULINGS; PENDING rows are the parallel, non-blocking sweep (S1
 | **SC-A05** | universal | `invalid_write_rejected_no_partial` crates/godhead-store/tests/a_lifecycle.rs:213 | NARROWER | skew's persisted RefusalRecord carries VALIDATION_FAILED not SCHEMA_MISMATCH (G1 miscode, fix ordered) |
 | **SC-A06** | universal | `out_of_range_schema_version_refused` crates/godhead-store/tests/a_lifecycle.rs:239 | PENDING |  |
 | **SC-A07** | plain | `?` crates/godhead-store/tests/a_lifecycle.rs:1<br>`envelope_completeness_enforced` crates/godhead-store/tests/a_lifecycle.rs:267 | PENDING |  |
-| **SC-A08** | universal | — | MINTED | G8 (2026-07-09); construction site: Slice 10 — view-integrity sweep + the one-time archaeology pass (H4 NEW-2) |
+| **SC-A08** | universal | `temp_root` crates/godhead-audit/tests/e05_audit.rs:53<br>`store` crates/godhead-scriptorium/tests/e05_scriptorium.rs:39<br>`?` crates/godhead-store/tests/e05_riders.rs:4<br>`spawn_running` crates/godhead-store/tests/e05_riders.rs:72<br>(+2 more) | MINTED | G8 (2026-07-09); construction site: Slice 10 — view-integrity sweep + the one-time archaeology pass (H4 NEW-2) |
 | **SC-B01** | plain | `?` crates/godhead-store/tests/b_handoff.rs:1 | PENDING |  |
 | **SC-B02** | plain | `flag_before_output_rejected` crates/godhead-store/tests/b_handoff.rs:48 | PENDING |  |
 | **SC-B03** | universal | `distrusted_flag_on_invalid_state` crates/godhead-store/tests/b_handoff.rs:81 | PENDING |  |
-| **SC-B04** | universal+arch | `?` crates/godhead-store/tests/b_handoff.rs:1<br>`flag_deletion_rejected` crates/godhead-store/tests/b_handoff.rs:112 | NARROWER | IPC scan covers godhead-store only; pub-mod half meets; G3 widens + orders the HTTP wall |
+| **SC-B04** | universal+arch | `sc_i05_quarantine_preserved` crates/godhead-deacon/tests/i_deacon.rs:828<br>`?` crates/godhead-store/tests/arch_walls.rs:3<br>`sc_d01_workspace_scan` crates/godhead-store/tests/arch_walls.rs:172<br>`sc_b04_workspace_ipc_scan` crates/godhead-store/tests/arch_walls.rs:192<br>(+2 more) | NARROWER | IPC scan covers godhead-store only; pub-mod half meets; G3 widens + orders the HTTP wall |
 | **SC-C01** | universal | `?` crates/godhead-notary/tests/c_sovereignty.rs:1<br>`heresy_petition` crates/godhead-notary/tests/c_sovereignty.rs:105<br>`sc_c01_override_protection` crates/godhead-notary/tests/c_sovereignty.rs:108 | PENDING |  |
-| **SC-C02** | plain | `sc_c01_override_protection` crates/godhead-notary/tests/c_sovereignty.rs:134<br>`sc_c02_petition_escalation` crates/godhead-notary/tests/c_sovereignty.rs:137 | PENDING |  |
+| **SC-C02** | plain | `sc_i07a_actor_class_wall` crates/godhead-deacon/tests/i_deacon.rs:1133<br>`sc_c01_override_protection` crates/godhead-notary/tests/c_sovereignty.rs:134<br>`sc_c02_petition_escalation` crates/godhead-notary/tests/c_sovereignty.rs:137 | PENDING |  |
 | **SC-C03** | universal | `sc_c02_petition_escalation` crates/godhead-notary/tests/c_sovereignty.rs:172<br>`sc_c03_silenced_suppression` crates/godhead-notary/tests/c_sovereignty.rs:175 | PENDING |  |
 | **SC-C04** | plain | `sc_c03_silenced_suppression` crates/godhead-notary/tests/c_sovereignty.rs:220<br>`sc_c04_grant_lays_successor` crates/godhead-notary/tests/c_sovereignty.rs:223 | PENDING |  |
 | **SC-C05** | plain | `sc_c04_grant_lays_successor` crates/godhead-notary/tests/c_sovereignty.rs:286<br>`sc_c05_post_grant_protection` crates/godhead-notary/tests/c_sovereignty.rs:289 | PENDING |  |
 | **SC-C06** | universal | `sc_c05_post_grant_protection` crates/godhead-notary/tests/c_sovereignty.rs:323<br>`sc_c06_stall_surfaced` crates/godhead-notary/tests/c_sovereignty.rs:327 | PENDING |  |
-| **SC-C07** | universal | `?` crates/godhead-notary/tests/c_sovereignty.rs:1<br>`sc_c06_stall_surfaced` crates/godhead-notary/tests/c_sovereignty.rs:367<br>`sc_c07_gate_bypass` crates/godhead-notary/tests/c_sovereignty.rs:374 | NARROWER | 3 of 8 entries wall-tested; criterion text narrowed in doc 08 (G6, 2026-07-09); signature-impossible entries await S4 arch pins; threshold/mandate entries pinned to slices 10/11 |
-| **SC-D01** | universal+arch | `?` crates/godhead-audit/tests/d_commitment.rs:1<br>`run_cycle` crates/godhead-audit/tests/d_commitment.rs:222<br>`sc_d01_config_citation` crates/godhead-audit/tests/d_commitment.rs:225 | NARROWER | arch half scans 2 crates by literal + 1 token; G2 widens to discovered crate list |
-| **SC-D02** | plain | `sc_d01_config_citation` crates/godhead-audit/tests/d_commitment.rs:271<br>`sc_d02_emergence` crates/godhead-audit/tests/d_commitment.rs:274 | PENDING |  |
-| **SC-D03** | universal | `sc_d02_emergence` crates/godhead-audit/tests/d_commitment.rs:343<br>`sc_d03_fiat_impossible` crates/godhead-audit/tests/d_commitment.rs:346 | PENDING |  |
-| **SC-D04** | universal | `sc_d03_fiat_impossible` crates/godhead-audit/tests/d_commitment.rs:395<br>`sc_d04_auditor_isolation` crates/godhead-audit/tests/d_commitment.rs:398 | PENDING |  |
-| **SC-D05** | plain | `sc_d04_auditor_isolation` crates/godhead-audit/tests/d_commitment.rs:431<br>`sc_d05_and_barrier` crates/godhead-audit/tests/d_commitment.rs:434 | PENDING |  |
-| **SC-D06** | universal | `sc_d05_and_barrier` crates/godhead-audit/tests/d_commitment.rs:479<br>`sc_d06_truth_binding` crates/godhead-audit/tests/d_commitment.rs:482 | PENDING |  |
-| **SC-D07** | universal | `sc_d06_truth_binding` crates/godhead-audit/tests/d_commitment.rs:533<br>`sc_d07_amend_exact` crates/godhead-audit/tests/d_commitment.rs:536 | PENDING |  |
-| **SC-D08** | universal | `sc_d07_amend_exact` crates/godhead-audit/tests/d_commitment.rs:577<br>`sc_d08_fixpoint_and_halt` crates/godhead-audit/tests/d_commitment.rs:580 | PENDING |  |
-| **SC-D09** | plain | `sc_d08_fixpoint_and_halt` crates/godhead-audit/tests/d_commitment.rs:628<br>`sc_d09_decommission` crates/godhead-audit/tests/d_commitment.rs:631 | PENDING |  |
-| **SC-D10** | universal | `?` crates/godhead-audit/tests/d_commitment.rs:1<br>`sc_d09_decommission` crates/godhead-audit/tests/d_commitment.rs:667<br>`sc_d10_notary_chain` crates/godhead-audit/tests/d_commitment.rs:670 | PENDING |  |
+| **SC-C07** | universal | `?` crates/godhead-deacon/tests/j_floor.rs:7<br>`mandates_for` crates/godhead-deacon/tests/j_floor.rs:274<br>`chains_frozen` crates/godhead-deacon/tests/j_floor.rs:682<br>`sc_c07_threshold_entry` crates/godhead-deacon/tests/j_floor.rs:700<br>(+4 more) | NARROWER | 3 of 8 entries wall-tested; criterion text narrowed in doc 08 (G6, 2026-07-09); signature-impossible entries await S4 arch pins; threshold/mandate entries pinned to slices 10/11 |
+| **SC-D01** | universal+arch | `?` crates/godhead-audit/tests/d_commitment.rs:1<br>`run_cycle` crates/godhead-audit/tests/d_commitment.rs:222<br>`sc_d01_config_citation` crates/godhead-audit/tests/d_commitment.rs:231<br>`is_comment` crates/godhead-store/tests/arch_walls.rs:102<br>(+2 more) | NARROWER | arch half scans 2 crates by literal + 1 token; G2 widens to discovered crate list |
+| **SC-D02** | plain | `sc_d01_config_citation` crates/godhead-audit/tests/d_commitment.rs:277<br>`sc_d02_emergence` crates/godhead-audit/tests/d_commitment.rs:280 | PENDING |  |
+| **SC-D03** | universal | `sc_d02_emergence` crates/godhead-audit/tests/d_commitment.rs:349<br>`sc_d03_fiat_impossible` crates/godhead-audit/tests/d_commitment.rs:352 | PENDING |  |
+| **SC-D04** | universal | `sc_d03_fiat_impossible` crates/godhead-audit/tests/d_commitment.rs:401<br>`sc_d04_auditor_isolation` crates/godhead-audit/tests/d_commitment.rs:404 | PENDING |  |
+| **SC-D05** | plain | `sc_d04_auditor_isolation` crates/godhead-audit/tests/d_commitment.rs:437<br>`sc_d05_and_barrier` crates/godhead-audit/tests/d_commitment.rs:440 | PENDING |  |
+| **SC-D06** | universal | `sc_d05_and_barrier` crates/godhead-audit/tests/d_commitment.rs:485<br>`sc_d06_truth_binding` crates/godhead-audit/tests/d_commitment.rs:488 | PENDING |  |
+| **SC-D07** | universal | `sc_d06_truth_binding` crates/godhead-audit/tests/d_commitment.rs:539<br>`sc_d07_amend_exact` crates/godhead-audit/tests/d_commitment.rs:542 | PENDING |  |
+| **SC-D08** | universal | `sc_d07_amend_exact` crates/godhead-audit/tests/d_commitment.rs:583<br>`sc_d08_fixpoint_and_halt` crates/godhead-audit/tests/d_commitment.rs:586 | PENDING |  |
+| **SC-D09** | plain | `sc_d08_fixpoint_and_halt` crates/godhead-audit/tests/d_commitment.rs:634<br>`sc_d09_decommission` crates/godhead-audit/tests/d_commitment.rs:637 | PENDING |  |
+| **SC-D10** | universal | `?` crates/godhead-audit/tests/d_commitment.rs:1<br>`sc_d09_decommission` crates/godhead-audit/tests/d_commitment.rs:673<br>`sc_d10_notary_chain` crates/godhead-audit/tests/d_commitment.rs:676 | PENDING |  |
 | **SC-E01a** | plain | `?` crates/godhead-store/tests/e_refusal.rs:1<br>`fixture_refusal` crates/godhead-store/tests/e_refusal.rs:18 | MEETS-AS-SPLIT | shape half of former SC-E01 (split per G5, doc 08 amended 2026-07-09); citing tests still say SC-E01 and are folded here; citation text updates ride with Slice 10 |
 | **SC-E02** | universal | `refusal_record_complete` crates/godhead-store/tests/e_refusal.rs:42 | PENDING |  |
 | **SC-E03** | plain | `refusal_preserves_state` crates/godhead-store/tests/e_refusal.rs:92 | PENDING |  |
 | **SC-E04** | plain | `?` crates/godhead-store/tests/e_refusal.rs:1<br>`refused_scored_as_compliance` crates/godhead-store/tests/e_refusal.rs:142 | PENDING |  |
-| **SC-E05** | universal | — | MINTED | G5 (2026-07-09); construction site: Slice 10 riders (S4) — swallow sites, mount refusal, panicking execute, suite-end sweep |
+| **SC-E05** | universal | `?` crates/godhead-audit/tests/e05_audit.rs:1<br>`temp_root` crates/godhead-audit/tests/e05_audit.rs:48<br>`sc_e05_no_labor_strands` crates/godhead-audit/tests/e05_audit.rs:56<br>`overflowing_draft` crates/godhead-concordat/tests/e05_concordat.rs:74<br>(+15 more) | MINTED | G5 (2026-07-09); construction site: Slice 10 riders (S4) — swallow sites, mount refusal, panicking execute, suite-end sweep |
 | **SC-F01** | universal | `?` crates/godhead-toolcall/tests/f_toolcall.rs:2<br>`counting_registry` crates/godhead-toolcall/tests/f_toolcall.rs:128<br>`propose_call` crates/godhead-toolcall/tests/f_toolcall.rs:175<br>`sc_f01_ladder_engages` crates/godhead-toolcall/tests/f_toolcall.rs:178 | PENDING |  |
 | **SC-F02** | plain | `sc_f01_ladder_engages` crates/godhead-toolcall/tests/f_toolcall.rs:220<br>`sc_f02_hallucinated_tool` crates/godhead-toolcall/tests/f_toolcall.rs:223 | PENDING |  |
 | **SC-F03** | plain | `sc_f02_hallucinated_tool` crates/godhead-toolcall/tests/f_toolcall.rs:248<br>`sc_f03_three_fixtures` crates/godhead-toolcall/tests/f_toolcall.rs:251 | PENDING |  |
@@ -62,44 +62,44 @@ ledger + PROMPT_G_RULINGS; PENDING rows are the parallel, non-blocking sweep (S1
 | **SC-H03** | universal | `cas_race_harness` crates/godhead-store/tests/h_commons.rs:138 | PENDING |  |
 | **SC-H04** | universal | `agent_timestamp_rejected_and_store_sequence_orders` crates/godhead-store/tests/h_commons.rs:186 | PENDING |  |
 | **SC-H05** | plain | `anonymous_write_rejected` crates/godhead-store/tests/h_commons.rs:205 | NARROWER | exhaustion witnessed on one guarded path; release_lease unguarded, bias surfaces identity-less (B3) |
-| **SC-H06** | universal | `?` crates/godhead-store/tests/h_commons.rs:1<br>`missing_budgets_rejected_and_exhaustion_refuses` crates/godhead-store/tests/h_commons.rs:283 | NARROWER | sweep = 3 tables x 1 pattern vs 26 tables x secrets::scan; refusal half meets; G4 widens |
-| **SC-H07** | universal | — | MINTED | G2 (2026-07-09); construction site: Slice 10 riders (S4) — workspace fallback-shape arch scan |
-| **SC-I01** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
-| **SC-I02** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
-| **SC-I03** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
-| **SC-I04** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
-| **SC-I05** | plain | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
-| **SC-I06** | universal+arch | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
-| **SC-I07a** | plain | — | MINTED | G10 (2026-07-09); rides with Slice 10 — actor-class substrate authentication |
-| **SC-I07b** | universal | — | MINTED | G11 (2026-07-09); rides with Slice 10 — admission legibility constants + standing notice |
-| **SC-J01** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
-| **SC-J02** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
+| **SC-H06** | universal | `?` crates/godhead-store/tests/arch_walls.rs:5<br>`sc_c07_signature_pins` crates/godhead-store/tests/arch_walls.rs:510<br>`zz_sc_h06_schema_driven_sweep` crates/godhead-store/tests/arch_walls.rs:594<br>`missing_budgets_rejected_and_exhaustion_refuses` crates/godhead-store/tests/h_commons.rs:283 | NARROWER | sweep = 3 tables x 1 pattern vs 26 tables x secrets::scan; refusal half meets; G4 widens |
+| **SC-H07** | universal | `?` crates/godhead-store/tests/arch_walls.rs:4<br>`no_outward_transport_wall` crates/godhead-store/tests/arch_walls.rs:364<br>`sc_h07_no_fabricated_defaults` crates/godhead-store/tests/arch_walls.rs:393 | MINTED | G2 (2026-07-09); construction site: Slice 10 riders (S4) — workspace fallback-shape arch scan |
+| **SC-I01** | universal | `?` crates/godhead-deacon/tests/i_deacon.rs:2<br>`force_config` crates/godhead-deacon/tests/i_deacon.rs:328<br>`sc_i01_quarantine_only` crates/godhead-deacon/tests/i_deacon.rs:333 | PENDING |  |
+| **SC-I02** | universal | `sc_i01_quarantine_only` crates/godhead-deacon/tests/i_deacon.rs:432<br>`sc_i02_admission_conjunction` crates/godhead-deacon/tests/i_deacon.rs:438 | PENDING |  |
+| **SC-I03** | universal | `sc_i02_admission_conjunction` crates/godhead-deacon/tests/i_deacon.rs:608<br>`sc_i03_scanner_down_holds` crates/godhead-deacon/tests/i_deacon.rs:614 | PENDING |  |
+| **SC-I04** | universal | `sc_i03_scanner_down_holds` crates/godhead-deacon/tests/i_deacon.rs:693<br>`sc_i04_no_shortcut_path` crates/godhead-deacon/tests/i_deacon.rs:698 | PENDING |  |
+| **SC-I05** | plain | `sc_i04_no_shortcut_path` crates/godhead-deacon/tests/i_deacon.rs:750<br>`sc_i05_quarantine_preserved` crates/godhead-deacon/tests/i_deacon.rs:760 | PENDING |  |
+| **SC-I06** | universal+arch | `sc_i05_quarantine_preserved` crates/godhead-deacon/tests/i_deacon.rs:828<br>`sc_i06_gate_arch` crates/godhead-deacon/tests/i_deacon.rs:835<br>`?` crates/godhead-store/tests/arch_walls.rs:15 | PENDING |  |
+| **SC-I07a** | plain | `collect_rs` crates/godhead-deacon/tests/i_deacon.rs:975 | MINTED | G10 (2026-07-09); rides with Slice 10 — actor-class substrate authentication |
+| **SC-I07b** | universal | `?` crates/godhead-deacon/tests/i_deacon.rs:2<br>`sc_i07a_actor_class_wall` crates/godhead-deacon/tests/i_deacon.rs:1123 | MINTED | G11 (2026-07-09); rides with Slice 10 — admission legibility constants + standing notice |
+| **SC-J01** | universal | `?` crates/godhead-deacon/tests/j_floor.rs:4<br>`writ` crates/godhead-deacon/tests/j_floor.rs:184<br>`mandates_for` crates/godhead-deacon/tests/j_floor.rs:267<br>`sc_j01_mandates_human_authored` crates/godhead-deacon/tests/j_floor.rs:280 | PENDING |  |
+| **SC-J02** | universal | `plant_cardinal_matrix` crates/godhead-deacon/tests/i_deacon.rs:147<br>`?` crates/godhead-deacon/tests/j_floor.rs:4<br>`sc_j01_mandates_human_authored` crates/godhead-deacon/tests/j_floor.rs:345<br>`sc_j02_writ_concreteness` crates/godhead-deacon/tests/j_floor.rs:353 | PENDING |  |
 | **SC-J03** | plain | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
 | **SC-J04** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
 | **SC-J05** | universal+arch | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
 | **SC-J06** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
 | **SC-J07** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
 | **SC-J08** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
-| **SC-J09** | plain | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
+| **SC-J09** | plain | `deposit` crates/godhead-deacon/tests/i_deacon.rs:245<br>`?` crates/godhead-deacon/tests/j_floor.rs:5<br>`lawful_deposit` crates/godhead-deacon/tests/j_floor.rs:232<br>`sc_j02_writ_concreteness` crates/godhead-deacon/tests/j_floor.rs:459<br>(+1 more) | PENDING |  |
 | **SC-J10** | plain | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
-| **SC-K01** | plain | `?` crates/godhead-concordat/tests/k_concordat.rs:1<br>`conforming` crates/godhead-concordat/tests/k_concordat.rs:181<br>`sc_k01_lint_clauses` crates/godhead-concordat/tests/k_concordat.rs:184 | PENDING |  |
-| **SC-K02** | plain | `assert_clause` crates/godhead-concordat/tests/k_concordat.rs:249<br>`sc_k02_sovereign_judgment` crates/godhead-concordat/tests/k_concordat.rs:252 | PENDING |  |
-| **SC-K03** | universal | `sc_k02_sovereign_judgment` crates/godhead-concordat/tests/k_concordat.rs:282<br>`sc_k03_version_skew` crates/godhead-concordat/tests/k_concordat.rs:285<br>`refusal_never_echoes_the_draft` crates/godhead-student/tests/l_student.rs:1125 | NARROWER | ephemeral error is SchemaMismatch (right); persisted record code is not (same G1 miscode) |
-| **SC-K04** | plain | `sc_k03_version_skew` crates/godhead-concordat/tests/k_concordat.rs:336<br>`sc_k04_double_validation` crates/godhead-concordat/tests/k_concordat.rs:339<br>`corrupted_budget_fails_reconstruction_loudly` crates/godhead-concordat/tests/k_concordat.rs:821 | NARROWER | sovereign-judgment flip is shape-preserving corruption the re-lint cannot catch; G7 content-hash closes the class |
-| **SC-K05** | plain | `sc_k04_double_validation` crates/godhead-concordat/tests/k_concordat.rs:381<br>`sc_k05_immutable_supersede` crates/godhead-concordat/tests/k_concordat.rs:384 | PENDING |  |
-| **SC-K06** | plain | `sc_k05_immutable_supersede` crates/godhead-concordat/tests/k_concordat.rs:419<br>`sc_k06_bias_disclosure` crates/godhead-concordat/tests/k_concordat.rs:422 | PENDING |  |
-| **SC-K07** | universal | `?` crates/godhead-concordat/tests/k_concordat.rs:1<br>`sc_k06_bias_disclosure` crates/godhead-concordat/tests/k_concordat.rs:483<br>`sc_k07_pattern_escalation` crates/godhead-concordat/tests/k_concordat.rs:486<br>`malformed_bias_config_refuses_never_guesses` crates/godhead-concordat/tests/k_concordat.rs:858 | PENDING |  |
-| **SC-L01** | plain | `?` crates/godhead-student/tests/l_student.rs:1<br>`assert_invalid` crates/godhead-student/tests/l_student.rs:318<br>`sc_l01_completion_contract` crates/godhead-student/tests/l_student.rs:322 | PENDING |  |
-| **SC-L02** | universal | `sc_l01_completion_contract` crates/godhead-student/tests/l_student.rs:424<br>`sc_l02_human_held_untouched` crates/godhead-student/tests/l_student.rs:427 | PENDING |  |
-| **SC-L03** | plain | `sc_l02_human_held_untouched` crates/godhead-student/tests/l_student.rs:481<br>`sc_l03_redundant_consistency` crates/godhead-student/tests/l_student.rs:485 | PENDING |  |
-| **SC-L04** | universal | `?` crates/godhead-student/tests/l_student.rs:1<br>`plant_artifact` crates/godhead-student/tests/l_student.rs:601<br>`sc_l04_unbound_unnamed` crates/godhead-student/tests/l_student.rs:604 | PENDING |  |
-| **SC-M01** | plain | `?` crates/godhead-ml/tests/m_ml.rs:1<br>`counting_roster` crates/godhead-ml/tests/m_ml.rs:123<br>`sc_m01_triggers` crates/godhead-ml/tests/m_ml.rs:128 | PENDING |  |
-| **SC-M02** | universal | `sc_m01_triggers` crates/godhead-ml/tests/m_ml.rs:245<br>`sc_m02_weights_inert_below_threshold` crates/godhead-ml/tests/m_ml.rs:248 | PENDING |  |
-| **SC-M03** | plain | `embed` crates/godhead-ml/tests/m_ml.rs:98<br>`sc_m02_weights_inert_below_threshold` crates/godhead-ml/tests/m_ml.rs:314<br>`sc_m03_mode_dial` crates/godhead-ml/tests/m_ml.rs:317 | PENDING |  |
-| **SC-M04** | universal | `sc_m03_mode_dial` crates/godhead-ml/tests/m_ml.rs:410<br>`sc_m04_empty_roster` crates/godhead-ml/tests/m_ml.rs:413 | PENDING |  |
-| **SC-M05** | universal | `set_config_retry` crates/godhead-ml/tests/m_ml.rs:85<br>`sc_m04_empty_roster` crates/godhead-ml/tests/m_ml.rs:448<br>`sc_m05_embed_once` crates/godhead-ml/tests/m_ml.rs:451 | PENDING |  |
-| **SC-M06** | plain | `?` crates/godhead-ml/tests/m_ml.rs:1<br>`sc_m05_embed_once` crates/godhead-ml/tests/m_ml.rs:492<br>`sc_m06_backfill` crates/godhead-ml/tests/m_ml.rs:496 | PENDING |  |
-| **SC-N01** | universal | `?` crates/godhead-intake/tests/n_intake.rs:1<br>`node_events` crates/godhead-intake/tests/n_intake.rs:72<br>`sc_n01_raw_copied_exactly_once` crates/godhead-intake/tests/n_intake.rs:75 | PENDING |  |
+| **SC-K01** | plain | `?` crates/godhead-concordat/tests/k_concordat.rs:1<br>`conforming` crates/godhead-concordat/tests/k_concordat.rs:250<br>`sc_k01_lint_clauses` crates/godhead-concordat/tests/k_concordat.rs:253 | PENDING |  |
+| **SC-K02** | plain | `assert_clause` crates/godhead-concordat/tests/k_concordat.rs:318<br>`sc_k02_sovereign_judgment` crates/godhead-concordat/tests/k_concordat.rs:321 | PENDING |  |
+| **SC-K03** | universal | `sc_k02_sovereign_judgment` crates/godhead-concordat/tests/k_concordat.rs:351<br>`sc_k03_version_skew` crates/godhead-concordat/tests/k_concordat.rs:354<br>`refusal_never_echoes_the_draft` crates/godhead-student/tests/l_student.rs:1160 | NARROWER | ephemeral error is SchemaMismatch (right); persisted record code is not (same G1 miscode) |
+| **SC-K04** | plain | `teacher_job` crates/godhead-concordat/tests/k_concordat.rs:187<br>`sc_k03_version_skew` crates/godhead-concordat/tests/k_concordat.rs:405<br>`sc_k04_double_validation` crates/godhead-concordat/tests/k_concordat.rs:408<br>`corrupted_budget_fails_reconstruction_loudly` crates/godhead-concordat/tests/k_concordat.rs:897<br>(+1 more) | NARROWER | sovereign-judgment flip is shape-preserving corruption the re-lint cannot catch; G7 content-hash closes the class |
+| **SC-K05** | plain | `sc_k04_double_validation` crates/godhead-concordat/tests/k_concordat.rs:447<br>`sc_k05_immutable_supersede` crates/godhead-concordat/tests/k_concordat.rs:450 | PENDING |  |
+| **SC-K06** | plain | `sc_k05_immutable_supersede` crates/godhead-concordat/tests/k_concordat.rs:485<br>`sc_k06_bias_disclosure` crates/godhead-concordat/tests/k_concordat.rs:488 | PENDING |  |
+| **SC-K07** | universal | `?` crates/godhead-concordat/tests/k_concordat.rs:1<br>`sc_k06_bias_disclosure` crates/godhead-concordat/tests/k_concordat.rs:549<br>`sc_k07_pattern_escalation` crates/godhead-concordat/tests/k_concordat.rs:556<br>`corrupted_budget_fails_reconstruction_loudly` crates/godhead-concordat/tests/k_concordat.rs:923<br>(+1 more) | PENDING |  |
+| **SC-L01** | plain | `?` crates/godhead-deacon/tests/j_floor.rs:7<br>`sc_c07_threshold_entry` crates/godhead-deacon/tests/j_floor.rs:777<br>`instruction_draft` crates/godhead-student/tests/l_student.rs:277<br>`assert_invalid` crates/godhead-student/tests/l_student.rs:349<br>(+1 more) | PENDING |  |
+| **SC-L02** | universal | `sc_l01_completion_contract` crates/godhead-student/tests/l_student.rs:455<br>`sc_l02_human_held_untouched` crates/godhead-student/tests/l_student.rs:458 | PENDING |  |
+| **SC-L03** | plain | `sc_l02_human_held_untouched` crates/godhead-student/tests/l_student.rs:512<br>`sc_l03_redundant_consistency` crates/godhead-student/tests/l_student.rs:516 | PENDING |  |
+| **SC-L04** | universal | `?` crates/godhead-student/tests/l_student.rs:1<br>`plant_artifact` crates/godhead-student/tests/l_student.rs:632<br>`sc_l04_unbound_unnamed` crates/godhead-student/tests/l_student.rs:635 | PENDING |  |
+| **SC-M01** | plain | `?` crates/godhead-ml/tests/m_ml.rs:1<br>`counting_roster` crates/godhead-ml/tests/m_ml.rs:123<br>`sc_m01_triggers` crates/godhead-ml/tests/m_ml.rs:132 | PENDING |  |
+| **SC-M02** | universal | `sc_m01_triggers` crates/godhead-ml/tests/m_ml.rs:249<br>`sc_m02_weights_inert_below_threshold` crates/godhead-ml/tests/m_ml.rs:252 | PENDING |  |
+| **SC-M03** | plain | `sc_e05_no_labor_strands_aggregate` crates/godhead-ml/tests/e05_ml.rs:213<br>`embed` crates/godhead-ml/tests/m_ml.rs:98<br>`sc_m02_weights_inert_below_threshold` crates/godhead-ml/tests/m_ml.rs:321<br>`sc_m03_mode_dial` crates/godhead-ml/tests/m_ml.rs:324 | PENDING |  |
+| **SC-M04** | universal | `sc_m03_mode_dial` crates/godhead-ml/tests/m_ml.rs:417<br>`sc_m04_empty_roster` crates/godhead-ml/tests/m_ml.rs:420 | PENDING |  |
+| **SC-M05** | universal | `set_config_retry` crates/godhead-ml/tests/m_ml.rs:85<br>`sc_m04_empty_roster` crates/godhead-ml/tests/m_ml.rs:455<br>`sc_m05_embed_once` crates/godhead-ml/tests/m_ml.rs:458 | PENDING |  |
+| **SC-M06** | plain | `sc_e05_no_labor_strands_slave` crates/godhead-ml/tests/e05_ml.rs:170<br>`?` crates/godhead-ml/tests/m_ml.rs:1<br>`sc_m05_embed_once` crates/godhead-ml/tests/m_ml.rs:499<br>`sc_m06_backfill` crates/godhead-ml/tests/m_ml.rs:503 | PENDING |  |
+| **SC-N01** | universal | `deacon_retry_converges` crates/godhead-deacon/tests/i_deacon.rs:1409<br>`?` crates/godhead-intake/tests/n_intake.rs:1<br>`node_events` crates/godhead-intake/tests/n_intake.rs:72<br>`sc_n01_raw_copied_exactly_once` crates/godhead-intake/tests/n_intake.rs:75 | PENDING |  |
 | **SC-N02** | universal | `sc_n01_raw_copied_exactly_once` crates/godhead-intake/tests/n_intake.rs:102<br>`sc_n02_first_log_and_rotation_chain` crates/godhead-intake/tests/n_intake.rs:105 | PENDING |  |
 | **SC-N03** | universal | `sc_n02_first_log_and_rotation_chain` crates/godhead-intake/tests/n_intake.rs:142<br>`sc_n03_decode_failure_and_unsupported` crates/godhead-intake/tests/n_intake.rs:146 | PENDING |  |
 | **SC-N04** | universal | `sc_n03_decode_failure_and_unsupported` crates/godhead-intake/tests/n_intake.rs:187<br>`sc_n04_seam_holds` crates/godhead-intake/tests/n_intake.rs:190 | MEETS+CLAIMS-SEAM | G6 formally assigns the SC-C07 'crossing the seam' entry to this criterion's observation-window test |
@@ -108,12 +108,12 @@ ledger + PROMPT_G_RULINGS; PENDING rows are the parallel, non-blocking sweep (S1
 
 ## Tally
 
-- DEFERRED: 16
+- DEFERRED: 7
 - HALF+ANNOTATED: 1
 - MEETS+CLAIMS-SEAM: 1
 - MEETS-AS-RULED: 1
 - MEETS-AS-SPLIT: 1
 - MINTED: 5
 - NARROWER: 8
-- PENDING: 66
+- PENDING: 75
 - TOTAL: 99

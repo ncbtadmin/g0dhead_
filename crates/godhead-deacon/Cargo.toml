@@ -1,5 +1,5 @@
 [package]
-name = "godhead-toolcall"
+name = "godhead-deacon"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -8,16 +8,17 @@ publish.workspace = true
 [dependencies]
 godhead-schemas = { path = "../godhead-schemas" }
 godhead-store = { path = "../godhead-store" }
+godhead-intake = { path = "../godhead-intake" }
 serde_json.workspace = true
-uuid.workspace = true
-semver.workspace = true
 thiserror.workspace = true
-async-trait.workspace = true
-futures.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
+godhead-scriptorium = { path = "../godhead-scriptorium" }
 tokio.workspace = true
+semver.workspace = true
 sqlx.workspace = true
+time.workspace = true
 
 [lints]
 workspace = true

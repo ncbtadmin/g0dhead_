@@ -117,9 +117,12 @@ pub async fn consolidate<S: Store>(
     {
         Ok(summary) => Ok(summary),
         Err(err) => {
-            // Budget exhaustion is refused by the store itself; a second
-            // refusal would be terminal access. Refusal is best-effort —
-            // the original defect is what the caller must see.
+            // A halt after RUNNING ends in a Law VII refusal on the record,
+            // and a failed refusal write propagates — never swallowed
+            // (SC-E05). BudgetExceeded is the one lawful skip: the store
+            // already enacted that refusal itself (already-recorded, not
+            // failed-to-record — G5); a second refusal would be terminal
+            // access.
             if !matches!(err, MlError::Store(StoreError::BudgetExceeded(_))) {
                 let (law, reason) = match &err {
                     MlError::Store(StoreError::LeaseConflict(_)) => {
@@ -128,21 +131,32 @@ pub async fn consolidate<S: Store>(
                     MlError::Store(StoreError::StaleRevision { .. }) => {
                         (Law::XI, RefusalReason::ValidationFailed)
                     }
-                    MlError::Endpoint(_) => (Law::VIII, RefusalReason::ToolOutputInvalid),
+                    // Ruling G1: a rostered endpoint failing mid-labor is an
+                    // endpoint invocation, not a Law VIII tool call — the
+                    // ladder deliberately does not run there, so its codes
+                    // may not be borrowed. The labor could not complete.
+                    MlError::Endpoint(_) => godhead_schemas::stage_code(),
                     _ => (Law::II, RefusalReason::ValidationFailed),
                 };
-                let _ = store
+                store
                     .refuse(
                         job.job_id,
                         &RefusalDraft {
                             law,
                             reason,
                             subject_refs: vec![category.to_string()],
-                            detail: format!("consolidation pass could not complete: {err}"),
+                            detail: format!(
+                                "the consolidation pass halted after RUNNING ({}); the job \
+                                 ends refused, never stranded (Law VII)",
+                                match &err {
+                                    MlError::Endpoint(_) => "ENDPOINT_FAULT",
+                                    MlError::Store(_) => "STORE_HALT",
+                                }
+                            ),
                             preserved_refs: vec![],
                         },
                     )
-                    .await;
+                    .await?;
             }
             Err(err)
         }

@@ -50,6 +50,10 @@ pub struct ReturnManifest {
     pub items: serde_json::Value,
     pub completion: serde_json::Value,
     pub flagged: bool,
+    /// Byte-integrity certification (ruling G7): SHA-256 of the canonical
+    /// body, persisted at FLAG, re-proven at every read of the flagged
+    /// record. None until flagged.
+    pub content_sha: Option<String>,
     pub revision: i32,
     pub envelope: Envelope,
 }

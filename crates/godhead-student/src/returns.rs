@@ -6,7 +6,7 @@
 use crate::{StudentError, RETURN_POINTER_SCHEMA, SUPPORTED_CONCORDAT};
 use godhead_schemas::{
     AgentType, Budgets, CompletionEntry, EnvKind, EnvStatus, EnvironmentRecord, FlagDraft,
-    JobDraft, JobStatus, Law, RefusalDraft, RefusalReason, ReturnDraft, ReturnManifest,
+    JobDraft, JobStatus, RefusalDraft, ReturnDraft, ReturnManifest,
 };
 use godhead_store::{Store, StoreError};
 use semver::{Version, VersionReq};
@@ -370,29 +370,40 @@ pub async fn write_return<S: Store>(
     // The persisted detail references the clause or stage and the law
     // only — never the draft's own text, which is caller-shaped and would
     // poison the Law XV scan (and with it, the refusal record itself).
-    let (law, detail, err) = match halt {
-        LaborHalt::Invalid(failure) => (
-            Law::II,
-            format!(
-                "Return VALIDATE_OUT failed clause '{}' (B.2, §3.1); the emission is not echoed (Law XV)",
-                failure.clause
-            ),
-            StudentError::ReturnInvalid(failure.to_string()),
-        ),
-        LaborHalt::Store { stage, source } => (
-            Law::VII,
-            format!(
-                "the Return labor halted at stage '{stage}' after RUNNING; the job ends refused, never stranded (Law VII)"
-            ),
-            StudentError::Store(source),
-        ),
+    // The (law, reason) pair comes from the ONE shared clause→code map
+    // (godhead_schemas::halt_code — ruling G1): skew-shaped clauses carry
+    // SCHEMA_MISMATCH (II.4, SC-A05, SC-K03); the rest VALIDATION_FAILED.
+    let (law, reason, detail, err) = match halt {
+        LaborHalt::Invalid(failure) => {
+            let (law, reason) = godhead_schemas::halt_code(failure.clause);
+            (
+                law,
+                reason,
+                format!(
+                    "Return VALIDATE_OUT failed clause '{}' (B.2, §3.1); the emission is not echoed (Law XV)",
+                    failure.clause
+                ),
+                StudentError::ReturnInvalid(failure.to_string()),
+            )
+        }
+        LaborHalt::Store { stage, source } => {
+            let (law, reason) = godhead_schemas::stage_code();
+            (
+                law,
+                reason,
+                format!(
+                    "the Return labor halted at stage '{stage}' after RUNNING; the job ends refused, never stranded (Law VII)"
+                ),
+                StudentError::Store(source),
+            )
+        }
     };
     store
         .refuse(
             job.job_id,
             &RefusalDraft {
                 law,
-                reason: RefusalReason::ValidationFailed,
+                reason,
                 subject_refs: vec![draft.instruction_ref.to_string()],
                 detail,
                 preserved_refs: vec![],

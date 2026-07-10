@@ -221,6 +221,12 @@ async fn run_cycle(store: &PgStore, matrix_id: Uuid, decision: ConsentDecision) 
 
 /// SC-D01 — a density evaluation lacking its config citation fails; no
 /// hardcoded threshold exists in agent code.
+/// Widened per ruling G2: the threshold-literal scan now also runs
+/// workspace-wide over DISCOVERED crates (no hand list) in
+/// godhead-store/tests/arch_walls.rs::sc_d01_workspace_scan, which subsumes
+/// this test's two-crate arch half; this test stands (tests only accumulate)
+/// and keeps the runtime half — the citation column NOT NULL at the
+/// substrate — which is its own.
 #[tokio::test]
 async fn sc_d01_config_citation() {
     // Architectural half: in agent crates, every mention of the coherence

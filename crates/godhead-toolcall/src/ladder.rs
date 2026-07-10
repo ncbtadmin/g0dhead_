@@ -51,6 +51,26 @@ fn guarded_validate_output(tool: &Arc<dyn Tool>, out: &serde_json::Value) -> Res
     })
 }
 
+/// A tool's `execute()`, run under panic isolation (the F4-new finding;
+/// SC-E05's class): a panicking tool must never unwind the labor past its
+/// refusal — the panic is caught and the call refuses like any other
+/// invalid execution. No re-execution follows a panic, idempotent or not:
+/// a tool that panicked has forfeited its oath for this call.
+async fn guarded_execute(
+    tool: &Arc<dyn Tool>,
+    args: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use futures::FutureExt;
+    AssertUnwindSafe(tool.execute(args))
+        .catch_unwind()
+        .await
+        .map_err(|_| {
+            "execute() panicked — a panicking tool never strands the labor; the call \
+             refuses (SC-E05)"
+                .to_string()
+        })
+}
+
 /// VIII.2 made strict (and II.2 honored): the emission's trimmed entirety
 /// must be a JSON object with exactly the keys `tool` (string) and
 /// `arguments` (object). Prose around perfect JSON is as invalid as
@@ -187,12 +207,24 @@ pub async fn run_tool_call<S: Store, M: ToolCaller>(
     // tool name here is from OUR registry (it resolved), never the raw
     // emission — safe to name in a persisted refusal.
     let tool_name = call.tool.name().to_string();
-    let mut output = call.tool.execute(&call.arguments).await;
+    let mut output = match guarded_execute(&call.tool, &call.arguments).await {
+        Ok(output) => output,
+        Err(why) => {
+            let detail = format!("tool '{tool_name}': {why} (Law VIII.4)");
+            return refuse(store, job_id, RefusalReason::ToolOutputInvalid, detail).await;
+        }
+    };
     if guarded_validate_output(&call.tool, &output).is_err() {
         if call.tool.idempotent() {
             // VIII.4: exactly one re-execution, and only because the tool
             // swears a second run is the same run.
-            output = call.tool.execute(&call.arguments).await;
+            output = match guarded_execute(&call.tool, &call.arguments).await {
+                Ok(output) => output,
+                Err(why) => {
+                    let detail = format!("tool '{tool_name}': {why} (Law VIII.4)");
+                    return refuse(store, job_id, RefusalReason::ToolOutputInvalid, detail).await;
+                }
+            };
             if guarded_validate_output(&call.tool, &output).is_err() {
                 let detail = format!(
                     "tool '{tool_name}' output failed validation twice after {repair_attempts} repair(s); refused (Law VIII.4)"
@@ -228,10 +260,19 @@ pub async fn run_tool_call<S: Store, M: ToolCaller>(
         )
         .await;
     if let Err(err) = artifact {
-        // A secret in the output (or any write defect) refuses the call —
-        // the tool ran, but nothing it produced is consumed. The error
-        // message names the pattern, never the secret itself (Law XV.1),
-        // so it is safe to persist in the refusal detail.
+        // BudgetExceeded is the one lawful skip (SC-E05/G5): write_artifact's
+        // own guard already enacted that refusal (already-recorded, not
+        // failed-to-record). A second refuse() here would strike the
+        // now-REFUSED job, write a false Law I.4 Violation, and mask
+        // BUDGET_EXCEEDED as TERMINAL_ACCESS — the exact double-refuse the
+        // other halt sites already skip. Propagate the true reason instead.
+        if matches!(err, StoreError::BudgetExceeded(_)) {
+            return Err(err.into());
+        }
+        // A secret in the output (or any other write defect) refuses the
+        // call — the tool ran, but nothing it produced is consumed. The
+        // error message names the pattern, never the secret itself (Law
+        // XV.1), so it is safe to persist in the refusal detail.
         let detail = format!(
             "tool '{tool_name}' executed but its record could not be consumed: {err} (Law XV outbound scan included)"
         );

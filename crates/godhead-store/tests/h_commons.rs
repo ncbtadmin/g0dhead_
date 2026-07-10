@@ -282,6 +282,12 @@ async fn missing_budgets_rejected_and_exhaustion_refuses() {
 
 /// SC-H06 — secret-shaped strings are refused on every write path and the
 /// violation is logged; no secret reaches store, log, or provenance.
+/// Widened per ruling G4: the closing sweep now also runs schema-driven —
+/// every text/jsonb column of every table, enumerated from
+/// information_schema, scanned with the production `secrets::scan` — in
+/// arch_walls.rs::zz_sc_h06_schema_driven_sweep, which subsumes this test's
+/// three-table hand-listed sweep; this test stands (tests only accumulate)
+/// and keeps the write-path refusal half, which is its own.
 #[tokio::test]
 async fn secret_scan_blocks_write() {
     let Some(store) = common::store().await else {

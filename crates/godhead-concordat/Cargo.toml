@@ -19,6 +19,7 @@ godhead-ml = { path = "../godhead-ml" }
 godhead-scriptorium = { path = "../godhead-scriptorium" }
 tokio.workspace = true
 sqlx.workspace = true
+serial_test.workspace = true
 
 [lints]
 workspace = true

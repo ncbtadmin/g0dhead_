@@ -1,4 +1,4 @@
-//! Section E — Refusal, the keystone (Law VII). SC-E01 … SC-E04.
+//! Section E — Refusal, the keystone (Law VII). SC-E01a … SC-E04.
 
 mod common;
 
@@ -15,7 +15,7 @@ fn fixture_refusal() -> RefusalDraft {
     }
 }
 
-/// SC-E01 — every refusal produces a RefusalRecord naming the law, a closed
+/// SC-E01a — every refusal produces a RefusalRecord naming the law, a closed
 /// reason code, subject refs, and preserved refs.
 #[tokio::test]
 async fn refusal_record_complete() {

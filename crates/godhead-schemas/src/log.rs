@@ -39,6 +39,11 @@ closed_enum! {
         BiasWarning => "BIAS_WARNING",
         ReturnFlagged => "RETURN_FLAGGED",
         Refined => "REFINED",
+        MandateAuthored => "MANDATE_AUTHORED",
+        ChainAppended => "CHAIN_APPENDED",
+        Quarantined => "QUARANTINED",
+        ScanRecorded => "SCAN_RECORDED",
+        ManifestPresented => "MANIFEST_PRESENTED",
     }
 }
 

@@ -154,6 +154,75 @@ async fn student_job(store: &PgStore) -> JobRecord {
         .expect("run")
 }
 
+/// A running Regular Teacher job — the disclosing identity for the bias
+/// surfaces (XIII.1; H3(3)): every disclosure now names the job that made
+/// it, so the fixtures mint one.
+async fn teacher_job(store: &PgStore) -> JobRecord {
+    let draft = JobDraft {
+        agent_type: AgentType::Teacher,
+        auditor_name: None,
+        tier: Some(Tier::Regular),
+        input_refs: vec![],
+        env_ref: None,
+        brief_ref: None,
+        endpoint_alias: None,
+        manual_version: Version::new(1, 0, 0),
+        budgets: Budgets {
+            max_wall_ms: 600_000,
+            max_tool_calls: 100,
+            max_tokens: 100_000,
+        },
+    };
+    let job = store.create_job(&draft).await.expect("create");
+    let job = store
+        .transition_job(job.job_id, job.revision, JobStatus::Leased)
+        .await
+        .expect("lease");
+    store
+        .transition_job(job.job_id, job.revision, JobStatus::Running)
+        .await
+        .expect("run")
+}
+
+/// H3(5) — mutating a FLAGGED record in place (the SC-K04 corruption
+/// shape) rides a DEDICATED non-pool connection under
+/// `session_replication_role = 'replica'`, then the connection is dropped.
+/// Never `ALTER TABLE … DISABLE TRIGGER` on the shared pool: that is
+/// database-global and autocommitted, and a panic between disable and
+/// re-enable would strand the immutability wall off for every session.
+async fn corrupt_flagged_instruction(sql: &str, instruction_id: Uuid) {
+    use sqlx::Connection;
+    let url = database_url().expect("DATABASE_URL");
+    let mut conn = sqlx::PgConnection::connect(&url)
+        .await
+        .expect("dedicated corruption connection");
+    sqlx::query("SET session_replication_role = 'replica'")
+        .execute(&mut conn)
+        .await
+        .expect("replica mode (session-local)");
+    sqlx::query(sql)
+        .bind(instruction_id)
+        .execute(&mut conn)
+        .await
+        .expect("corrupt");
+    // The mode dies with the session; the shared pool never saw it.
+    drop(conn);
+}
+
+/// A sovereign-class config write for fixtures (ruling G10): the
+/// class-guarded `config_constants` table demands a transaction-local
+/// `godhead.actor_class = 'sovereign'` — a bare raw-pool UPDATE is now a
+/// GATE_BYPASS_ATTEMPT by design.
+async fn sovereign_config_write(store: &PgStore, sql: &str) {
+    let mut tx = store.raw_pool().begin().await.expect("tx");
+    sqlx::query("SET LOCAL godhead.actor_class = 'sovereign'")
+        .execute(&mut *tx)
+        .await
+        .expect("authenticate as sovereign (SET LOCAL)");
+    sqlx::query(sql).execute(&mut *tx).await.expect("write");
+    tx.commit().await.expect("commit");
+}
+
 /// A conforming Devout-targeted Instruction from a Devout Teacher.
 fn conforming(env: Uuid, node: Uuid) -> InstructionDraft {
     InstructionDraft {
@@ -350,26 +419,23 @@ async fn sc_k04_double_validation() {
 
     // Corrupt the body out-of-band â€” bypassing the immutability trigger to
     // simulate a corruption the trigger did not catch (defense in depth):
-    // rewrite the step to a fetch action, which the re-lint rejects.
-    sqlx::query("ALTER TABLE instructions DISABLE TRIGGER instruction_immutable")
-        .execute(store.raw_pool())
-        .await
-        .expect("disable trigger");
-    sqlx::query(
+    // rewrite the step to a fetch action, which the re-lint rejects. The
+    // fixture rides a dedicated replica-mode connection (H3(5)), never a
+    // trigger toggle on the shared pool; it also nulls content_sha,
+    // simulating a record flagged before the hash era (ruling G7 admits
+    // those), so the catch proven here stays the RE-LINT's depth: the
+    // byte-integrity gate has its own test
+    // (content_sha_at_flag_reproves_at_read).
+    corrupt_flagged_instruction(
         r#"UPDATE instructions
            SET steps = jsonb_build_array(jsonb_build_object(
                'step_id', 1, 'action', 'FETCH_PER_WRIT', 'params', '{}'::jsonb,
-               'expected_output', 'x@1.0', 'budget_hint_tokens', 1))
+               'expected_output', 'x@1.0', 'budget_hint_tokens', 1)),
+               content_sha = NULL
            WHERE instruction_id = $1"#,
+        flagged.instruction_id,
     )
-    .bind(flagged.instruction_id)
-    .execute(store.raw_pool())
-    .await
-    .expect("corrupt");
-    sqlx::query("ALTER TABLE instructions ENABLE TRIGGER instruction_immutable")
-        .execute(store.raw_pool())
-        .await
-        .expect("re-enable trigger");
+    .await;
 
     let err = read_instruction(&store, reader.job_id, flagged.instruction_id).await;
     assert!(
@@ -482,7 +548,11 @@ async fn sc_k06_bias_disclosure() {
 
 /// SC-K07 â€” pattern escalation: crossing the threshold raises one standing
 /// warning; acknowledge keeps it; silence suppresses it, not re-raised.
+/// Serialized (H3(5)): the bias_warnings scope row and the bias constants
+/// are global singletons; a nondeterministic gate cannot keep doc 00 §4's
+/// commitment.
 #[tokio::test]
+#[serial_test::serial(bias_scope)]
 async fn sc_k07_pattern_escalation() {
     let Some(store) = store().await else { return };
     let (_m, _env, node) = devout_teacher(&store).await;
@@ -530,11 +600,14 @@ async fn sc_k07_pattern_escalation() {
         draw_count: 1,
         canon_associated: true,
     }];
+    // The disclosures carry the disclosing job's identity (XIII.1; H3(3)).
+    let discloser = teacher_job(&store).await;
     let mut stood = false;
     for _ in 0..30 {
-        let (was_skew, stands) = disclose_regular_output(&store, anchor.instruction_id, &skewed)
-            .await
-            .expect("disclose");
+        let (was_skew, stands) =
+            disclose_regular_output(&store, discloser.job_id, anchor.instruction_id, &skewed)
+                .await
+                .expect("disclose");
         assert!(was_skew, "a fully-canon output is skewed");
         stood = stands;
     }
@@ -571,9 +644,10 @@ async fn sc_k07_pattern_escalation() {
         .resolve_bias_warning("sovereign", BIAS_SCOPE, false)
         .await
         .expect("silence");
-    let (_s, stands) = disclose_regular_output(&store, anchor.instruction_id, &skewed)
-        .await
-        .expect("disclose after silence");
+    let (_s, stands) =
+        disclose_regular_output(&store, discloser.job_id, anchor.instruction_id, &skewed)
+            .await
+            .expect("disclose after silence");
     assert!(!stands, "a silenced scope is not re-raised until lifted");
     assert_eq!(
         store
@@ -727,8 +801,10 @@ async fn teacher_refusal_never_echoes_the_draft() {
     .await
     .expect("refusals");
     assert_eq!(details.len(), 1, "the refusal is on record");
+    // An unadopted citation is the version precondition 'v' (skew-shaped,
+    // ruling G1) — clause 'b' still governs capability violations.
     assert!(
-        details[0].0.contains("clause 'b'"),
+        details[0].0.contains("clause 'v'"),
         "the clause is named: {}",
         details[0].0
     );
@@ -818,26 +894,20 @@ async fn corrupted_budget_fails_reconstruction_loudly() {
         .expect("write");
 
     // Corrupt budget_hint_tokens to a string out-of-band, bypassing the
-    // immutability trigger (defense in depth, the SC-K04 pattern).
-    sqlx::query("ALTER TABLE instructions DISABLE TRIGGER instruction_immutable")
-        .execute(store.raw_pool())
-        .await
-        .expect("disable trigger");
-    sqlx::query(
+    // immutability trigger (defense in depth, the SC-K04 pattern) on a
+    // dedicated replica-mode connection (H3(5)). content_sha is nulled too
+    // (a pre-hash-era record, ruling G7 admits those) so the loud failure
+    // proven here stays RECONSTRUCTION's, not the byte-integrity gate's.
+    corrupt_flagged_instruction(
         r#"UPDATE instructions
            SET steps = jsonb_build_array(jsonb_build_object(
                'step_id', 1, 'action', 'REFINE', 'params', '{}'::jsonb,
-               'expected_output', 'x@1.0', 'budget_hint_tokens', 'a great many'))
+               'expected_output', 'x@1.0', 'budget_hint_tokens', 'a great many')),
+               content_sha = NULL
            WHERE instruction_id = $1"#,
+        flagged.instruction_id,
     )
-    .bind(flagged.instruction_id)
-    .execute(store.raw_pool())
-    .await
-    .expect("corrupt");
-    sqlx::query("ALTER TABLE instructions ENABLE TRIGGER instruction_immutable")
-        .execute(store.raw_pool())
-        .await
-        .expect("re-enable trigger");
+    .await;
 
     let reader = student_job(&store).await;
     let err = read_instruction(&store, reader.job_id, flagged.instruction_id).await;
@@ -850,32 +920,37 @@ async fn corrupted_budget_fails_reconstruction_loudly() {
 /// Hardening (external review [2]): a present-but-malformed sovereign
 /// constant refuses — a fabricated default threshold would be a decision
 /// the sovereign never made (Law II.2).
+/// Serialized with sc_k07 (H3(5)): both mutate the bias singletons.
 #[tokio::test]
+#[serial_test::serial(bias_scope)]
 async fn malformed_bias_config_refuses_never_guesses() {
     let Some(store) = store().await else { return };
+    // The disclosure carries a job identity (XIII.1; H3(3)) — minted
+    // before the malform window so the window stays minimal.
+    let discloser = teacher_job(&store).await;
     // Malform the constant out-of-band and restore it immediately below —
     // the window is kept minimal because the parallel bias tests read the
     // same row (the sc_k07 caveat).
-    sqlx::query(
+    // config_constants is class-guarded (ruling G10): the fixture writes
+    // authenticate as sovereign via SET LOCAL inside a transaction.
+    sovereign_config_write(
+        &store,
         r#"UPDATE config_constants SET value = '"half"'::jsonb
            WHERE key = 'bias_skew_threshold'"#,
     )
-    .execute(store.raw_pool())
-    .await
-    .expect("malform");
+    .await;
     let sources = vec![SourceDraw {
         matrix_ref: Uuid::now_v7(),
         draw_count: 1,
         canon_associated: true,
     }];
-    let err = disclose_regular_output(&store, Uuid::now_v7(), &sources).await;
-    sqlx::query(
+    let err = disclose_regular_output(&store, discloser.job_id, Uuid::now_v7(), &sources).await;
+    sovereign_config_write(
+        &store,
         r#"UPDATE config_constants SET value = '0.50'::jsonb
            WHERE key = 'bias_skew_threshold'"#,
     )
-    .execute(store.raw_pool())
-    .await
-    .expect("restore");
+    .await;
     assert!(
         matches!(
             err,

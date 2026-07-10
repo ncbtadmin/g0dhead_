@@ -17,6 +17,7 @@ sqlx.workspace = true
 tokio.workspace = true
 regex.workspace = true
 pgvector.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

@@ -4,9 +4,10 @@ use godhead_concordat::write_instruction;
 use godhead_intake::{Dispatcher, IntakePipe};
 use godhead_ml::{aggregate, slave, LexicalEmbedder, Roster};
 use godhead_schemas::{
-    AcceptanceCriterion, AgentType, Budgets, CapabilityAction, CompletionEntry, ConfigTier,
-    EnvKind, InstructionDraft, InstructionRecord, JobDraft, JobRecord, JobStatus, LogEvent,
-    PairingKind, PetitionStatus, ReturnDraft, ReturnItem, ReturnItemKind, Step, TestableAs, Tier,
+    AcceptanceCriterion, AgentType, Budgets, CapabilityAction, ChainEntryDraft, ChainEntryKind,
+    CompletionEntry, ConfigTier, EnvKind, InstructionDraft, InstructionRecord, JobDraft, JobRecord,
+    JobStatus, LogEvent, PairingKind, PetitionStatus, ReturnDraft, ReturnItem, ReturnItemKind,
+    Step, TestableAs, Tier,
 };
 use godhead_scriptorium::{establish, mount, ScriptoriumError};
 use godhead_store::{PgStore, Store, StoreError};
@@ -272,15 +273,45 @@ fn instruction_draft(env: Uuid, node: Uuid) -> InstructionDraft {
 
 /// A conforming Return: one entry per criterion, evidence everywhere, a
 /// verdict on the machine-checkable floor and none on the sovereign's.
-fn conforming_return(instruction: &InstructionRecord, student_env: Uuid) -> ReturnDraft {
+///
+/// Slice 10 closed the SC-L01 items hole (SLICE_09 §6 finding 7's pin):
+/// `item_ref`/`provenance_ref` now RESOLVE at the store, so the fixture
+/// hands back a real node whose arrival story stands as a BRIEF-rooted
+/// C.2 chain in provenance_chains — the random uuids that passed the
+/// slice-9 nil floor no longer pass the wall.
+async fn conforming_return(
+    store: &PgStore,
+    instruction: &InstructionRecord,
+    student_env: Uuid,
+    node: Uuid,
+) -> ReturnDraft {
+    if store.chain_for(node).await.expect("chain read").is_empty() {
+        // Root the node's arrival story once: a BRIEF root needs no
+        // MandateRecord (C.2 — verified in SLICE_10 §7).
+        let job = student_job(store).await;
+        store
+            .append_chain_entry(
+                job.job_id,
+                &ChainEntryDraft {
+                    chain_ref: node,
+                    kind: ChainEntryKind::Brief,
+                    mandate_ref: None,
+                    prompt_or_reason: "the sovereign's charge, narrated for the returned item"
+                        .to_string(),
+                    produced: vec![node],
+                },
+            )
+            .await
+            .expect("chain root");
+    }
     ReturnDraft {
         instruction_ref: instruction.instruction_id,
         student_env_ref: student_env,
         concordat_version: instruction.concordat_version.clone(),
         items: vec![ReturnItem {
-            item_ref: Uuid::now_v7(),
-            kind: ReturnItemKind::RefinedDoc,
-            provenance_ref: Uuid::now_v7(),
+            item_ref: node,
+            kind: ReturnItemKind::CorpusItem,
+            provenance_ref: node,
         }],
         completion: vec![
             CompletionEntry {
@@ -327,7 +358,7 @@ async fn sc_l01_completion_contract() {
         .expect("instruction");
 
     // Conforming → validates, writes, flags.
-    let ok = conforming_return(&instruction, pair.student_env);
+    let ok = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     assert!(
         validate_return(&store, &ok)
             .await
@@ -343,12 +374,12 @@ async fn sc_l01_completion_contract() {
     assert_eq!(read_back.instruction_ref, instruction.instruction_id);
 
     // A missing criterion entry.
-    let mut missing = conforming_return(&instruction, pair.student_env);
+    let mut missing = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     missing.completion.pop();
     assert_invalid(&store, &missing, "exactly one each").await;
 
     // An extra entry.
-    let mut extra = conforming_return(&instruction, pair.student_env);
+    let mut extra = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     extra.completion.push(CompletionEntry {
         criterion_index: 1,
         passed: None,
@@ -357,12 +388,12 @@ async fn sc_l01_completion_contract() {
     assert_invalid(&store, &extra, "exactly one each").await;
 
     // An entry beyond the Instruction's criteria.
-    let mut beyond = conforming_return(&instruction, pair.student_env);
+    let mut beyond = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     beyond.completion[1].criterion_index = 2;
     assert_invalid(&store, &beyond, "beyond the Instruction").await;
 
     // A duplicate index.
-    let mut dup = conforming_return(&instruction, pair.student_env);
+    let mut dup = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     dup.completion[1] = CompletionEntry {
         criterion_index: 0,
         passed: Some(true),
@@ -371,22 +402,22 @@ async fn sc_l01_completion_contract() {
     assert_invalid(&store, &dup, "answered twice").await;
 
     // A machine-checkable criterion with no verdict.
-    let mut unjudged = conforming_return(&instruction, pair.student_env);
+    let mut unjudged = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     unjudged.completion[0].passed = None;
     assert_invalid(&store, &unjudged, "renders a verdict").await;
 
     // A sovereign criterion with a Student verdict.
-    let mut judged = conforming_return(&instruction, pair.student_env);
+    let mut judged = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     judged.completion[1].passed = Some(false);
     assert_invalid(&store, &judged, "sovereign's to render").await;
 
     // A nil evidence_ref — evidence is mandatory in every case.
-    let mut nil = conforming_return(&instruction, pair.student_env);
+    let mut nil = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     nil.completion[0].evidence_ref = Uuid::nil();
     assert_invalid(&store, &nil, "evidence is mandatory").await;
 
     // A nil item ref — the manifest's payload half carries the same floor.
-    let mut nil_item = conforming_return(&instruction, pair.student_env);
+    let mut nil_item = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     nil_item.items[0].item_ref = Uuid::nil();
     assert_invalid(&store, &nil_item, "carries a nil ref").await;
 
@@ -663,7 +694,7 @@ async fn return_walls_live_bound_paired_tiered() {
         .expect("orphan");
     assert_invalid(
         &store,
-        &conforming_return(&instruction, doomed.env_id),
+        &conforming_return(&store, &instruction, doomed.env_id, pair.node_a).await,
         "archived room",
     )
     .await;
@@ -673,7 +704,7 @@ async fn return_walls_live_bound_paired_tiered() {
     let err = store
         .persist_return(
             unbound.job_id,
-            &conforming_return(&instruction, pair.student_env),
+            &conforming_return(&store, &instruction, pair.student_env, pair.node_a).await,
         )
         .await
         .expect_err("the binding wall");
@@ -708,7 +739,7 @@ async fn return_walls_live_bound_paired_tiered() {
         .expect("canon room");
     assert_invalid(
         &store,
-        &conforming_return(&instruction, canon.env_id),
+        &conforming_return(&store, &instruction, canon.env_id, pair.node_a).await,
         "the Instruction binds DEVOUT",
     )
     .await;
@@ -718,7 +749,7 @@ async fn return_walls_live_bound_paired_tiered() {
     let err = store
         .persist_return(
             bound_other.job_id,
-            &conforming_return(&instruction, other.env_id),
+            &conforming_return(&store, &instruction, other.env_id, pair.node_a).await,
         )
         .await
         .expect_err("the pairing wall");
@@ -741,7 +772,7 @@ async fn validate_gates_beyond_the_contract() {
         .expect("instruction");
 
     // The answered Instruction must resolve …
-    let mut ghost = conforming_return(&instruction, pair.student_env);
+    let mut ghost = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     ghost.instruction_ref = Uuid::now_v7();
     assert_invalid(&store, &ghost, "does not resolve").await;
 
@@ -756,13 +787,13 @@ async fn validate_gates_beyond_the_contract() {
         .expect("unflagged instruction");
     assert_invalid(
         &store,
-        &conforming_return(&unflagged, pair.student_env),
+        &conforming_return(&store, &unflagged, pair.student_env, pair.node_a).await,
         "not flagged",
     )
     .await;
 
     // Version skew outside the declared range refuses (§2.4) …
-    let mut skewed = conforming_return(&instruction, pair.student_env);
+    let mut skewed = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     skewed.concordat_version = Version::new(2, 0, 0);
     assert_invalid(&store, &skewed, "outside the Student's supported range").await;
 
@@ -775,7 +806,7 @@ async fn validate_gates_beyond_the_contract() {
             .adopt_concordat("sovereign", &v110, &tables, &json!({}))
             .await;
     }
-    let mut minor = conforming_return(&instruction, pair.student_env);
+    let mut minor = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     minor.concordat_version = v110;
     assert!(
         validate_return(&store, &minor)
@@ -786,7 +817,8 @@ async fn validate_gates_beyond_the_contract() {
     );
 
     // A Return rises from a Student's room, not a Teacher's.
-    let mut wrong_room = conforming_return(&instruction, pair.student_env);
+    let mut wrong_room =
+        conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     wrong_room.student_env_ref = pair.teacher_env;
     assert_invalid(&store, &wrong_room, "names a TEACHER environment").await;
 }
@@ -865,9 +897,12 @@ async fn walk_covers_conformance_and_the_room() {
     let refined = refine(&store, job.job_id, pair.student_env, &[pair.node_a])
         .await
         .expect("refine");
-    let answered = write_return(&store, &conforming_return(&instruction, pair.student_env))
-        .await
-        .expect("return");
+    let answered = write_return(
+        &store,
+        &conforming_return(&store, &instruction, pair.student_env, pair.node_a).await,
+    )
+    .await
+    .expect("return");
     let writer_job: Uuid = answered
         .envelope
         .produced_by
@@ -949,7 +984,7 @@ async fn certification_walls_and_single_flag_event() {
     let instruction = write_instruction(&store, &instruction_draft(pair.teacher_env, pair.node_a))
         .await
         .expect("instruction");
-    let draft = conforming_return(&instruction, pair.student_env);
+    let draft = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     let job = bound_student_job(&store, pair.student_env, pair.matrix).await;
     let manifest = store
         .persist_return(job.job_id, &draft)
@@ -1037,7 +1072,7 @@ async fn mid_labor_halt_refuses_never_strands() {
     let (_j, lone) = establish(&store, EnvKind::Student, Tier::Devout, pair.matrix)
         .await
         .expect("lone room");
-    let draft = conforming_return(&instruction, lone.env_id);
+    let draft = conforming_return(&store, &instruction, lone.env_id, pair.node_a).await;
     assert!(
         validate_return(&store, &draft)
             .await
@@ -1091,7 +1126,7 @@ async fn refusal_never_echoes_the_draft() {
         .await
         .expect("instruction");
 
-    let mut hostile = conforming_return(&instruction, pair.student_env);
+    let mut hostile = conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     hostile.concordat_version = Version::parse("1.0.0-AKIA0123456789ABCDEF").expect("valid semver");
     let err = write_return(&store, &hostile).await;
     assert!(
@@ -1123,7 +1158,8 @@ async fn refusal_never_echoes_the_draft() {
 
     // A version inside the range but never adopted is refused too — a
     // certified record must cite a retrievable Concordat (SC-K03).
-    let mut unadopted = conforming_return(&instruction, pair.student_env);
+    let mut unadopted =
+        conforming_return(&store, &instruction, pair.student_env, pair.node_a).await;
     unadopted.concordat_version = Version::new(1, 987_654, 0);
     assert_invalid(&store, &unadopted, "never adopted").await;
 }

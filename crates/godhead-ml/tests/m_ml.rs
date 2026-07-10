@@ -124,7 +124,11 @@ fn counting_roster() -> (Roster, Arc<AtomicUsize>) {
 /// recalculation; each configured trigger kind executes it. Uses .json
 /// nodes (floor bucket "database") — the only test embedding that bucket,
 /// so eligibility assertions cannot race the other tests.
+/// Serialized (H3(5)): the rebalance_state row for the "database" bucket
+/// and the rebalance_trigger constant are global singletons; a
+/// nondeterministic gate cannot keep doc 00 §4's commitment.
 #[tokio::test]
+#[serial_test::serial(rebalance_state)]
 async fn sc_m01_triggers() {
     let Some(store) = store().await else { return };
     let root = temp_root();
@@ -272,12 +276,15 @@ async fn sc_m02_weights_inert_below_threshold() {
         .expect("consolidate");
     assert!(summary.weights_set >= 1, "identical texts must link");
 
-    // Threshold far above the cluster's density: inert.
+    // Threshold above the cluster's density (two nodes, one link: 0.5):
+    // inert. 1.0 is the contract ceiling — the write-side contract (H3(2))
+    // holds thresholds to [0, 1], so the old 1000.0 fixture is unwritable
+    // by design.
     set_config_retry(
         &store,
         "coherence_threshold",
         ConfigTier::Sovereign,
-        &json!(1000.0),
+        &json!(1.0),
     )
     .await;
     let weights = store

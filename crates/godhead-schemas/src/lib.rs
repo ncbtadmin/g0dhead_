@@ -15,6 +15,8 @@
 
 mod macros;
 
+pub mod chain;
+pub mod clauses;
 pub mod config;
 pub mod envelope;
 pub mod environment;
@@ -24,6 +26,7 @@ pub mod instruction;
 pub mod job;
 pub mod lease;
 pub mod log;
+pub mod mandate;
 pub mod matrix;
 pub mod ml;
 pub mod node;
@@ -31,7 +34,10 @@ pub mod refusal;
 pub mod registry;
 pub mod sovereignty;
 pub mod student;
+pub mod threshold;
 
+pub use chain::{ChainEntry, ChainEntryDraft, ChainEntryKind};
+pub use clauses::{halt_code, stage_code};
 pub use config::{ConfigConstant, ConfigTier};
 pub use envelope::Envelope;
 pub use environment::{
@@ -47,6 +53,10 @@ pub use instruction::{
 pub use job::{AgentType, AuditorName, Budgets, JobDraft, JobRecord, JobStatus, Tier};
 pub use lease::LeaseRecord;
 pub use log::{LogEvent, LogSnapshot, Severity};
+pub use mandate::{
+    validate_locator_shape, validate_mandate_shape, Locator, MandateDemands, MandateDraft,
+    MandateKind, MandateRecord, WritTarget,
+};
 pub use matrix::{
     Amendment, AmendmentKind, AuditReport, AuditReportDraft, AuditorKind, Claim, ClaimSeverity,
     JointProposal, MatrixRecord, MatrixStatus, ProposalDraft, ReportKind, Verdict,
@@ -61,6 +71,9 @@ pub use sovereignty::{
 };
 pub use student::{
     CompletionEntry, RefinedArtifact, ReturnDraft, ReturnItem, ReturnItemKind, ReturnManifest,
+};
+pub use threshold::{
+    Manifest, QuarantineDraft, QuarantineItem, ScanEngine, ScanVerdict, ScanVerdictKind,
 };
 
 /// The schema version of the slice-1 record types themselves.

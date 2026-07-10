@@ -146,24 +146,33 @@ async fn embed_one<S: Store>(
     match persist_one(store, job.job_id, node.node_id, alias, &vector).await {
         Ok(()) => Ok(true),
         Err(err) => {
-            // The store may already have refused the job itself (budget
-            // exhaustion); a second refusal would be terminal access.
-            // Best-effort: a refusal that cannot be written is still
-            // reported to the caller.
+            // A halt after RUNNING ends in a Law VII refusal on the record,
+            // and a failed refusal write propagates — never swallowed
+            // (SC-E05). BudgetExceeded is the one lawful skip: the store
+            // already enacted that refusal itself (already-recorded, not
+            // failed-to-record — G5).
             if !matches!(err, StoreError::BudgetExceeded(_)) {
                 let (law, reason) = refusal_of(&err);
-                let _ = store
+                let token = err.to_string();
+                let token = token.split(':').next().unwrap_or("UNNAMED").to_string();
+                store
                     .refuse(
                         job.job_id,
                         &RefusalDraft {
                             law,
                             reason,
                             subject_refs: vec![node.node_id.to_string()],
-                            detail: format!("embedding labor could not complete: {err}"),
+                            detail: format!(
+                                "the embedding labor halted after RUNNING ({token}); the job \
+                                 ends refused, never stranded (Law VII)"
+                            ),
                             preserved_refs: vec![],
                         },
                     )
-                    .await;
+                    .await
+                    .map_err(|refusal_err| {
+                        format!("refusal write failed and is not swallowed (SC-E05): {refusal_err}")
+                    })?;
             }
             Err(err.to_string())
         }

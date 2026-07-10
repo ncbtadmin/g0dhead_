@@ -99,29 +99,45 @@ fn notary_draft(petition_id: Uuid) -> godhead_schemas::JobDraft {
     }
 }
 
-/// The Law VII close for a Notary whose labor failed mid-flight: refuse
-/// on the record (best-effort — budget exhaustion was already refused by
-/// the store itself); the job never strands live.
-async fn refuse_notary<S: Store>(store: &S, job_id: Uuid, subject: &str, err: &StoreError) {
+/// The Law VII close for a Notary whose labor halted after RUNNING: the
+/// job ends REFUSED on the record, and a failed refusal write propagates
+/// as a hard error — never swallowed (SC-E05; the slice-6 doctrine).
+/// BudgetExceeded is the one lawful skip: the store has ALREADY enacted
+/// that refusal itself — already-recorded, not failed-to-record (G5's
+/// distinction) — and a second refusal would be terminal access. The
+/// persisted detail names the halt's stable code token, never the error's
+/// own text.
+async fn refuse_notary<S: Store>(
+    store: &S,
+    job_id: Uuid,
+    subject: &str,
+    err: &StoreError,
+) -> Result<(), StoreError> {
     if matches!(err, StoreError::BudgetExceeded(_)) {
-        return;
+        return Ok(());
     }
     let (law, reason) = match err {
         StoreError::LeaseConflict(_) => (Law::XI, RefusalReason::LeaseConflict),
-        _ => (Law::IV, RefusalReason::ValidationFailed),
+        _ => godhead_schemas::stage_code(),
     };
-    let _ = store
+    let token = err.to_string();
+    let token = token.split(':').next().unwrap_or("UNNAMED");
+    store
         .refuse(
             job_id,
             &RefusalDraft {
                 law,
                 reason,
                 subject_refs: vec![subject.to_string()],
-                detail: format!("notary labor could not complete: {err}"),
+                detail: format!(
+                    "the notary labor halted after RUNNING ({token}); the job ends refused, \
+                     never stranded (Law VII)"
+                ),
                 preserved_refs: vec![],
             },
         )
-        .await;
+        .await?;
+    Ok(())
 }
 
 /// One summoning: spawn, validate the chain, apply exactly the granted
@@ -142,7 +158,7 @@ pub async fn run_grant<S: Store>(
     match grant_labor(store, job.job_id, petition_id, petition.subject_ref).await {
         Ok(successor) => Ok(successor),
         Err(err) => {
-            refuse_notary(store, job.job_id, &petition_id.to_string(), &err).await;
+            refuse_notary(store, job.job_id, &petition_id.to_string(), &err).await?;
             Err(NotaryError::Refused(format!(
                 "petition {petition_id}: {err}"
             )))
@@ -227,7 +243,7 @@ where
     match matrix_act_labor(store, job.job_id, matrix_id, act, execute).await {
         Ok(matrix) => Ok(matrix),
         Err(err) => {
-            refuse_notary(store, job.job_id, &input_ref.to_string(), &err).await;
+            refuse_notary(store, job.job_id, &input_ref.to_string(), &err).await?;
             Err(NotaryError::Refused(format!("{act} {input_ref}: {err}")))
         }
     }

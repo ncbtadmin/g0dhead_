@@ -3,21 +3,34 @@ use crate::interface::Store;
 use crate::secrets;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
-    roman_ordinal, roster_index, AgentType, AmendmentKind, AuditReport, AuditReportDraft,
-    AuditorKind, AuditorName, Budgets, Claim, ConcordatArtifact, ConfigConstant, ConfigTier,
-    ConsentDecision, ConsentRecord, ConsentScope, EmbeddingRecord, EnvItem, EnvKind, EnvStatus,
-    Envelope, EnvironmentRecord, FlagDraft, FlagStatus, InstructionDraft, InstructionRecord,
-    IntakeStatus, JobDraft, JobRecord, JobStatus, JointProposal, Law, LeaseRecord, LinkRecord,
-    LiveWeights, LogEvent, LogSnapshot, MatrixRecord, MatrixStatus, NodeDraft, NodeRecord,
-    NormalizeOutcome, OverrideBasis, OverrideKind, OverrideRecord, PairingKind, PairingRecord,
-    PetitionDraft, PetitionRecord, PetitionStatus, ProposalDraft, ReadinessFlag, RebalanceState,
+    roman_ordinal, roster_index, validate_mandate_shape, AgentType, AmendmentKind, AuditReport,
+    AuditReportDraft, AuditorKind, AuditorName, Budgets, ChainEntry, ChainEntryDraft,
+    ChainEntryKind, Claim, ConcordatArtifact, ConfigConstant, ConfigTier, ConsentDecision,
+    ConsentRecord, ConsentScope, EmbeddingRecord, EnvItem, EnvKind, EnvStatus, Envelope,
+    EnvironmentRecord, FlagDraft, FlagStatus, InstructionDraft, InstructionRecord, IntakeStatus,
+    JobDraft, JobRecord, JobStatus, JointProposal, Law, LeaseRecord, LinkRecord, LiveWeights,
+    Locator, LogEvent, LogSnapshot, MandateDemands, MandateDraft, MandateKind, MandateRecord,
+    Manifest, MatrixRecord, MatrixStatus, NodeDraft, NodeRecord, NormalizeOutcome, OverrideBasis,
+    OverrideKind, OverrideRecord, PairingKind, PairingRecord, PetitionDraft, PetitionRecord,
+    PetitionStatus, ProposalDraft, QuarantineDraft, QuarantineItem, ReadinessFlag, RebalanceState,
     RefinedArtifact, RefusalDraft, RefusalReason, RefusalRecord, ReportKind, ReturnDraft,
-    ReturnManifest, SchemaRegistry, Severity, SourceDraw, Tier, Verdict, RECORD_SCHEMA_VERSION,
+    ReturnManifest, ScanEngine, ScanVerdict, ScanVerdictKind, SchemaRegistry, Severity, SourceDraw,
+    Tier, Verdict, RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
+use sha2::{Digest, Sha256};
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
 use sqlx::Row;
 use uuid::Uuid;
+
+/// Ruling G10 — the actor classes the reserved-table triggers verify. The
+/// class strings are constants of this file, never caller input: the
+/// credential lives only in the code path that is the lawful surface.
+const SOVEREIGN_CLASS: &str = "sovereign";
+const DEACON_CLASS: &str = "office:deacon";
+/// The one standing functionary's write identity (A.1: produced_by is a
+/// job ref or an office id).
+pub const DEACON_OFFICE_ID: &str = "office:deacon";
 
 /// Payload keys the store issues itself (Law XII / A.1). An agent-supplied
 /// value for any of these is rejected — SC-H03's mechanical form.
@@ -469,6 +482,7 @@ impl PgStore {
             skew: row.try_get("skew")?,
             supersedes_ref: row.try_get("supersedes_ref")?,
             flagged: row.try_get("flagged")?,
+            content_sha: row.try_get("content_sha")?,
             revision: row.try_get("revision")?,
             envelope: Self::envelope_from_row(row)?,
         })
@@ -632,6 +646,7 @@ impl PgStore {
             items: row.try_get("items")?,
             completion: row.try_get("completion")?,
             flagged: row.try_get("flagged")?,
+            content_sha: row.try_get("content_sha")?,
             revision: row.try_get("revision")?,
             envelope: Self::envelope_from_row(row)?,
         })
@@ -831,6 +846,334 @@ impl PgStore {
         )
         .await?;
         Self::refusal_from_row(&row)
+    }
+
+    /// Ruling G10: authenticate this transaction's actor class. `SET LOCAL`
+    /// is transaction-scoped; below the API the variable is absent, so
+    /// 'deacon', 'sovereign', and 'forged' are all rejected alike by the
+    /// reserved-table triggers.
+    async fn set_actor_class(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        class: &'static str,
+    ) -> Result<(), StoreError> {
+        // SET LOCAL takes no bind parameters; `class` is one of this file's
+        // constants, never caller input.
+        sqlx::query(&format!("SET LOCAL godhead.actor_class = '{class}'"))
+            .execute(&mut **tx)
+            .await?;
+        Ok(())
+    }
+
+    /// Canonical JSON: object keys sorted, no whitespace — deterministic
+    /// regardless of serde feature unification, so a hash computed at FLAG
+    /// re-proves at every read (ruling G7).
+    fn canonical_json(value: &serde_json::Value, out: &mut String) {
+        match value {
+            serde_json::Value::Object(map) => {
+                out.push('{');
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                for (i, key) in keys.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&serde_json::Value::String((*key).clone()).to_string());
+                    out.push(':');
+                    Self::canonical_json(&map[*key], out);
+                }
+                out.push('}');
+            }
+            serde_json::Value::Array(items) => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    Self::canonical_json(item, out);
+                }
+                out.push(']');
+            }
+            leaf => out.push_str(&leaf.to_string()),
+        }
+    }
+
+    fn sha256_of_canonical(body: &serde_json::Value) -> String {
+        let mut text = String::new();
+        Self::canonical_json(body, &mut text);
+        let mut hasher = Sha256::new();
+        hasher.update(text.as_bytes());
+        let digest = hasher.finalize();
+        let mut hex = String::with_capacity(64);
+        for byte in digest {
+            use std::fmt::Write;
+            write!(hex, "{byte:02x}").expect("writing hex to a String cannot fail");
+        }
+        hex
+    }
+
+    /// The canonical body of an Instruction (ruling G7): every field the
+    /// certification covers, in one deterministic shape. Time-varying
+    /// clauses stay with the reconstruction path; the hash answers bytes.
+    fn instruction_body(rec: &InstructionRecord) -> serde_json::Value {
+        serde_json::json!({
+            "objective": rec.objective,
+            "teacher_env_ref": rec.teacher_env_ref.map(|u| u.to_string()),
+            "teacher_tier": rec.teacher_tier.as_str(),
+            "target_tier": rec.target_tier.as_str(),
+            "concordat_version": rec.concordat_version.to_string(),
+            "steps": rec.steps,
+            "acceptance_criteria": rec.acceptance_criteria,
+            "sources_drawn": rec.sources_drawn,
+            "skew": rec.skew,
+            "supersedes_ref": rec.supersedes_ref.map(|u| u.to_string()),
+        })
+    }
+
+    /// The canonical body of a ReturnManifest (ruling G7).
+    fn return_body(rec: &ReturnManifest) -> serde_json::Value {
+        serde_json::json!({
+            "instruction_ref": rec.instruction_ref.to_string(),
+            "student_env_ref": rec.student_env_ref.to_string(),
+            "concordat_version": rec.concordat_version.to_string(),
+            "items": rec.items,
+            "completion": rec.completion,
+        })
+    }
+
+    /// Ruling G7's read half: a flagged record whose stored hash no longer
+    /// re-proves is byte-corrupt — SCHEMA_MISMATCH, never a best-effort
+    /// read. Records flagged before the hash era (no stored hash) pass
+    /// through: their integrity story is the reconstruction path's.
+    fn prove_content_sha(
+        kind: &str,
+        id: Uuid,
+        flagged: bool,
+        stored: Option<&str>,
+        body: &serde_json::Value,
+    ) -> Result<(), StoreError> {
+        if !flagged {
+            return Ok(());
+        }
+        let Some(stored) = stored else {
+            return Ok(());
+        };
+        let computed = Self::sha256_of_canonical(body);
+        if computed != stored {
+            return Err(StoreError::SchemaMismatch(format!(
+                "the flagged {kind} {id} does not re-prove its content hash; \
+                 byte-integrity is broken between flag and read (ruling G7, SC-K04)"
+            )));
+        }
+        Ok(())
+    }
+
+    /// H3(2) — write-side config contracts: per-key type + semantic floor,
+    /// registered here beside the schema registry, enforced at write.
+    /// Read-side refusals remain as depth. A key without a contract is
+    /// accepted as-is (its contract arrives when its consumer does).
+    fn config_contract(key: &str, value: &serde_json::Value) -> Result<(), String> {
+        fn int_at_least(value: &serde_json::Value, floor: i64) -> Result<(), String> {
+            match value.as_i64() {
+                Some(n) if n >= floor => Ok(()),
+                Some(n) => Err(format!("must be an integer >= {floor}, got {n}")),
+                None => Err("must be an integer".into()),
+            }
+        }
+        fn unit_interval(value: &serde_json::Value) -> Result<(), String> {
+            match value.as_f64() {
+                Some(x) if (0.0..=1.0).contains(&x) => Ok(()),
+                Some(x) => Err(format!("must be a number in [0, 1], got {x}")),
+                None => Err("must be a number".into()),
+            }
+        }
+        fn string_array(value: &serde_json::Value, non_empty: bool) -> Result<(), String> {
+            let Some(items) = value.as_array() else {
+                return Err("must be an array of strings".into());
+            };
+            if non_empty && items.is_empty() {
+                return Err("must be a non-empty array".into());
+            }
+            if items
+                .iter()
+                .any(|v| v.as_str().is_none_or(|s| s.trim().is_empty()))
+            {
+                return Err("every entry must be a non-empty string".into());
+            }
+            Ok(())
+        }
+        let result = match key {
+            "bias_pattern_window" => int_at_least(value, 1),
+            "bias_skew_threshold" | "bias_pattern_threshold" | "coherence_threshold" => {
+                unit_interval(value)
+            }
+            "petition_stall_ms"
+            | "lease_ttl_ms"
+            | "admission_batch_threshold"
+            | "admission_rate_window_ms"
+            | "admission_rate_threshold"
+            | "quarantine_retention_days" => int_at_least(value, 1),
+            "tool_repair_attempts" => int_at_least(value, 0),
+            "name_roster" | "honorific_set" => string_array(value, true),
+            "known_source_ids" => string_array(value, false),
+            _ => Ok(()),
+        };
+        result.map_err(|why| format!("config '{key}' {why} (write-side contract, H3(2))"))
+    }
+
+    // ---- threshold & J-floor row decoding ----
+
+    fn mandate_from_row(row: &PgRow) -> Result<MandateRecord, StoreError> {
+        Ok(MandateRecord {
+            mandate_id: row.try_get("mandate_id")?,
+            kind: MandateKind::parse(row.try_get::<String, _>("kind")?.as_str())
+                .map_err(StoreError::from_schema)?,
+            teacher_env_ref: row.try_get("teacher_env_ref")?,
+            matrix_ref: row.try_get("matrix_ref")?,
+            demands: row.try_get("demands")?,
+            trip_budget: row.try_get("trip_budget")?,
+            authored_at: row.try_get("authored_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn chain_from_row(row: &PgRow) -> Result<ChainEntry, StoreError> {
+        let produced: serde_json::Value = row.try_get("produced")?;
+        Ok(ChainEntry {
+            chain_ref: row.try_get("chain_ref")?,
+            link_seq: row.try_get("link_seq")?,
+            kind: ChainEntryKind::parse(row.try_get::<String, _>("kind")?.as_str())
+                .map_err(StoreError::from_schema)?,
+            actor_job_ref: row.try_get("actor_job_ref")?,
+            mandate_ref: row.try_get("mandate_ref")?,
+            prompt_or_reason: row.try_get("prompt_or_reason")?,
+            produced: Self::uuid_vec(&produced, "produced")?,
+            at: row.try_get("at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn quarantine_from_row(row: &PgRow) -> Result<QuarantineItem, StoreError> {
+        Ok(QuarantineItem {
+            item_ref: row.try_get("item_ref")?,
+            origin_job_ref: row.try_get("origin_job_ref")?,
+            mandate_ref: row.try_get("mandate_ref")?,
+            brief_ref: row.try_get("brief_ref")?,
+            filename: row.try_get("filename")?,
+            declared_type: row.try_get("declared_type")?,
+            content: row.try_get("content")?,
+            scan_ref: row.try_get("scan_ref")?,
+            consent_ref: row.try_get("consent_ref")?,
+            admitted_node_ref: row.try_get("admitted_node_ref")?,
+            held_since: row.try_get("held_since")?,
+            revision: row.try_get("revision")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn verdict_from_row(row: &PgRow) -> Result<ScanVerdict, StoreError> {
+        Ok(ScanVerdict {
+            scan_id: row.try_get("scan_id")?,
+            item_ref: row.try_get("item_ref")?,
+            verdict: ScanVerdictKind::parse(row.try_get::<String, _>("verdict")?.as_str())
+                .map_err(StoreError::from_schema)?,
+            engine: ScanEngine {
+                alias: row.try_get("engine_alias")?,
+                version: row.try_get("engine_version")?,
+                signature_rev: row.try_get("signature_rev")?,
+            },
+            scanned_at: row.try_get("scanned_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn manifest_from_row(row: &PgRow) -> Result<Manifest, StoreError> {
+        Ok(Manifest {
+            manifest_id: row.try_get("manifest_id")?,
+            mandate_ref: row.try_get("mandate_ref")?,
+            trip_job_ref: row.try_get("trip_job_ref")?,
+            items: row.try_get("items")?,
+            standing_notice: row.try_get("standing_notice")?,
+            presented_at: row.try_get("presented_at")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    /// The admission conjunction (SC-I02), proven wherever admission is
+    /// decided: the item's LATEST verdict is CLEAN, a resolving consent
+    /// says ADMITTED over exactly this item (or a Manifest batch holding
+    /// it), and the consent names the very scan it saw — a newer, darker
+    /// verdict defeats a stale consent. Only CLEAN + ADMITTED passes;
+    /// INFECTED, SUSPECT, and ERROR are never admissible (Book II §1).
+    async fn prove_admission_conjunction(&self, item: &QuarantineItem) -> Result<(), StoreError> {
+        let latest = self.latest_verdict(item.item_ref).await?.ok_or_else(|| {
+            StoreError::ValidationFailed(format!(
+                "item {} is unscanned; the Deacon never admits the unscanned (Book II §1)",
+                item.item_ref
+            ))
+        })?;
+        if latest.verdict != ScanVerdictKind::Clean {
+            return Err(StoreError::ValidationFailed(format!(
+                "item {} stands {}; INFECTED, SUSPECT, and ERROR are never admissible (SC-I02)",
+                item.item_ref, latest.verdict
+            )));
+        }
+        let consent_id = item.consent_ref.ok_or_else(|| {
+            StoreError::ValidationFailed(format!(
+                "item {} has no consent; the Deacon never admits alone (Book II §1)",
+                item.item_ref
+            ))
+        })?;
+        let consent = self.get_consent(consent_id).await?;
+        if consent.decision != ConsentDecision::Admitted {
+            return Err(StoreError::ValidationFailed(format!(
+                "consent {consent_id} says {}; only ADMITTED admits (SC-I02)",
+                consent.decision
+            )));
+        }
+        // The consent binds the scan it saw.
+        let consented_scan: Option<Uuid> =
+            sqlx::query_scalar("SELECT scan_ref FROM consent_records WHERE consent_id = $1")
+                .bind(consent_id)
+                .fetch_one(&self.pool)
+                .await?;
+        match consent.scope {
+            ConsentScope::Item => {
+                if consent.subject_ref != item.item_ref {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "consent {consent_id} was given over {}, not item {} (SC-I02)",
+                        consent.subject_ref, item.item_ref
+                    )));
+                }
+                if consented_scan != Some(latest.scan_id) {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "consent {consent_id} saw a different scan than the item's latest; \
+                         a stale consent admits nothing (Book II §1)"
+                    )));
+                }
+            }
+            ConsentScope::Batch => {
+                let manifest = self.get_manifest(consent.subject_ref).await?;
+                let listed_scan = manifest
+                    .items
+                    .as_array()
+                    .and_then(|items| {
+                        items.iter().find(|entry| {
+                            entry.get("item_ref").and_then(|v| v.as_str())
+                                == Some(item.item_ref.to_string()).as_deref()
+                        })
+                    })
+                    .and_then(|entry| entry.get("scan_id").and_then(|v| v.as_str()))
+                    .and_then(|s| Uuid::parse_str(s).ok());
+                if listed_scan != Some(latest.scan_id) {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "the batch consent's Manifest does not carry item {} under its \
+                         latest scan; a stale or absent listing admits nothing (Book II §1)",
+                        item.item_ref
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1375,6 +1718,10 @@ impl Store for PgStore {
     }
 
     async fn release_lease(&self, job_id: Uuid, lease_id: Uuid) -> Result<(), StoreError> {
+        // XIII.1 means what it says (H3(3)): the releasing path carries an
+        // authenticated identity. Post-FLAG release is lawful — it is part
+        // of termination — so the terminal permit rides along.
+        self.guard_actor(job_id, "release_lease", true).await?;
         let result = sqlx::query(
             r#"UPDATE lease_records SET active = false, expires_at = now()
                WHERE lease_id = $1 AND job_id = $2 AND active"#,
@@ -1424,7 +1771,16 @@ impl Store for PgStore {
                 "config value matched secret pattern '{pattern}' — secrets live only in the config secret store (Law XV.1)"
             )));
         }
-        match expected_revision {
+        // H3(2) — the write-side contract: structural prevention over
+        // policy. A malformed constant never lands; the read-side refusals
+        // remain as depth.
+        Self::config_contract(key, value).map_err(StoreError::ValidationFailed)?;
+        // Ruling G10: config is human/deployment administration — the
+        // single-statement path gains its transaction so the class
+        // credential can ride it (H6(e)'s costed case).
+        let mut tx = self.pool.begin().await?;
+        Self::set_actor_class(&mut tx, SOVEREIGN_CLASS).await?;
+        let result = match expected_revision {
             None => {
                 let row = sqlx::query(
                     r#"INSERT INTO config_constants
@@ -1438,7 +1794,7 @@ impl Store for PgStore {
                 .bind(value)
                 .bind(changed_by)
                 .bind(RECORD_SCHEMA_VERSION)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *tx)
                 .await?;
                 match row {
                     Some(row) => Self::config_from_row(&row),
@@ -1460,18 +1816,30 @@ impl Store for PgStore {
                 .bind(value)
                 .bind(tier.as_str())
                 .bind(changed_by)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *tx)
                 .await?;
                 match row {
                     Some(row) => Self::config_from_row(&row),
-                    None => {
-                        self.get_config(key).await?; // NotFound if the key is absent
-                        Err(StoreError::StaleRevision {
-                            expected,
-                            subject: format!("config:{key}"),
-                        })
-                    }
+                    None => Err(StoreError::StaleRevision {
+                        expected,
+                        subject: format!("config:{key}"),
+                    }),
                 }
+            }
+        };
+        match result {
+            Ok(config) => {
+                tx.commit().await?;
+                Ok(config)
+            }
+            Err(StoreError::StaleRevision { expected, subject }) => {
+                tx.rollback().await?;
+                self.get_config(key).await?; // NotFound if the key is absent
+                Err(StoreError::StaleRevision { expected, subject })
+            }
+            Err(e) => {
+                tx.rollback().await?;
+                Err(e)
             }
         }
     }
@@ -1766,6 +2134,7 @@ impl Store for PgStore {
         let node = self.get_node(node_id).await?;
         let prior = self.get_active_override(node_id).await?;
         let mut tx = self.pool.begin().await?;
+        Self::set_actor_class(&mut tx, SOVEREIGN_CLASS).await?;
         let updated = sqlx::query(
             r#"UPDATE nodes SET classification = $3, revision = revision + 1
                WHERE node_id = $1 AND revision = $2"#,
@@ -1968,6 +2337,10 @@ impl Store for PgStore {
                 petition.status
             )));
         }
+        // One transaction: the consent and the answered petition land
+        // together, under the sovereign's class (ruling G10).
+        let mut tx = self.pool.begin().await?;
+        Self::set_actor_class(&mut tx, SOVEREIGN_CLASS).await?;
         let (new_status, consent_id) = match decision {
             ConsentDecision::Granted => {
                 let consent_id = Uuid::now_v7();
@@ -1981,7 +2354,7 @@ impl Store for PgStore {
                 .bind(petition_id)
                 .bind(actor)
                 .bind(RECORD_SCHEMA_VERSION)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await?;
                 (PetitionStatus::Granted, Some(consent_id))
             }
@@ -2001,8 +2374,9 @@ impl Store for PgStore {
         .bind(petition_id)
         .bind(new_status.as_str())
         .bind(consent_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+        tx.commit().await?;
         self.append_log(
             &petition.subject_ref.to_string(),
             LogEvent::PetitionResolved,
@@ -2079,6 +2453,11 @@ impl Store for PgStore {
         let node = self.get_node(petition.subject_ref).await?;
 
         let mut tx = self.pool.begin().await?;
+        // The successor override is a consent-authorized write: the
+        // authority is the consent — the sovereign's act, executed by
+        // hands that hold no judgment — so the transaction bears the
+        // sovereign's class (ruling G10; IV.5).
+        Self::set_actor_class(&mut tx, SOVEREIGN_CLASS).await?;
         let updated = sqlx::query(
             r#"UPDATE nodes SET classification = $3, revision = revision + 1
                WHERE node_id = $1 AND revision = $2"#,
@@ -3061,6 +3440,7 @@ impl Store for PgStore {
         // speaks once, mechanically (backed by the set-once trigger).
         let consent_id = Uuid::now_v7();
         let mut tx = self.pool.begin().await?;
+        Self::set_actor_class(&mut tx, SOVEREIGN_CLASS).await?;
         sqlx::query(
             r#"INSERT INTO consent_records
                  (consent_id, subject_ref, decision, scope, decided_by,
@@ -3283,6 +3663,8 @@ impl Store for PgStore {
             )));
         }
         let consent_id = Uuid::now_v7();
+        let mut tx = self.pool.begin().await?;
+        Self::set_actor_class(&mut tx, SOVEREIGN_CLASS).await?;
         sqlx::query(
             r#"INSERT INTO consent_records
                  (consent_id, subject_ref, decision, scope, decided_by,
@@ -3293,8 +3675,9 @@ impl Store for PgStore {
         .bind(matrix_id)
         .bind(actor)
         .bind(RECORD_SCHEMA_VERSION)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(consent_id)
     }
 
@@ -3523,7 +3906,12 @@ impl Store for PgStore {
                 env.status
             )));
         }
-        let row = sqlx::query(
+        // H3(4), XI.1 strict: an environment is a mutable subject; its
+        // curation is written under its lease — acquire-or-refuse, no
+        // waiting, no spinning. Released in the same breath; a failure in
+        // between expires with the TTL (XI.2).
+        let lease = self.acquire_lease(job_id, env_id, 60_000).await?;
+        let written = sqlx::query(
             r#"INSERT INTO environment_items
                  (env_id, item_ref, provenance, flagged,
                   schema_name, schema_version, produced_by)
@@ -3539,7 +3927,10 @@ impl Store for PgStore {
         .bind(RECORD_SCHEMA_VERSION)
         .bind(job_id)
         .fetch_one(&self.pool)
-        .await?;
+        .await;
+        let release = self.release_lease(job_id, lease.lease_id).await;
+        let row = written?;
+        release?;
         Self::env_item_from_row(&row)
     }
 
@@ -3900,24 +4291,37 @@ impl Store for PgStore {
         }
         // skew is DERIVED, never trusted from a caller (B.1): the
         // canon-associated share of disclosed draws exceeds
-        // bias_skew_threshold (§6.3).
+        // bias_skew_threshold (§6.3). A mistyped constant refuses — a
+        // fabricated default is a decision the sovereign never made
+        // (SC-H07; this very site is the class's third survivor, caught
+        // by the slice-10 sweep).
         let skew_threshold = self
             .get_config("bias_skew_threshold")
             .await?
             .value
             .as_f64()
-            .unwrap_or(0.50);
+            .ok_or_else(|| {
+                StoreError::ValidationFailed(
+                    "bias_skew_threshold is not a number; no code path substitutes a \
+                     fabricated default for a constant (SC-H07)"
+                        .into(),
+                )
+            })?;
+        // Checked folds: an adversarial draw census saturates legibly, it
+        // never debug-panics a RUNNING labor (B1 aggravation; SC-E05).
         let total: i64 = draft
             .sources_drawn
             .iter()
             .map(|s| s.draw_count.max(0))
-            .sum();
+            .try_fold(0i64, i64::checked_add)
+            .unwrap_or(i64::MAX);
         let canon: i64 = draft
             .sources_drawn
             .iter()
             .filter(|s| s.canon_associated)
             .map(|s| s.draw_count.max(0))
-            .sum();
+            .try_fold(0i64, i64::checked_add)
+            .unwrap_or(i64::MAX);
         #[allow(clippy::cast_precision_loss)] // draw counts are small
         let skew = total > 0 && (canon as f64 / total as f64) > skew_threshold;
         // A Devout/Canon Teacher works from an environment; a Regular does
@@ -3974,17 +4378,35 @@ impl Store for PgStore {
         instruction_id: Uuid,
     ) -> Result<InstructionRecord, StoreError> {
         self.guard_actor(job_id, "flag_instruction", false).await?;
+        // Ruling G7: certification is byte-strength — the canonical body's
+        // hash is persisted in the same act that flags, and re-proven at
+        // every read of the flagged record. CAS on revision: the body the
+        // hash covers is the body that flags.
+        let current = self.get_instruction(instruction_id).await?;
+        let content_sha = Self::sha256_of_canonical(&Self::instruction_body(&current));
         let row = sqlx::query(
-            r#"UPDATE instructions SET flagged = true, revision = revision + 1
-               WHERE instruction_id = $1 AND NOT flagged
+            r#"UPDATE instructions
+               SET flagged = true, content_sha = $3, revision = revision + 1
+               WHERE instruction_id = $1 AND NOT flagged AND revision = $2
                RETURNING *"#,
         )
         .bind(instruction_id)
+        .bind(current.revision)
+        .bind(&content_sha)
         .fetch_optional(&self.pool)
         .await?;
         let record = match row {
             Some(row) => Self::instruction_from_row(&row)?,
-            None => self.get_instruction(instruction_id).await?, // already flagged
+            None => {
+                let now = self.get_instruction(instruction_id).await?;
+                if !now.flagged {
+                    return Err(StoreError::StaleRevision {
+                        expected: current.revision,
+                        subject: format!("instruction:{instruction_id}"),
+                    });
+                }
+                now // already flagged: idempotent read-back
+            }
         };
         self.append_log(
             &instruction_id.to_string(),
@@ -4003,27 +4425,51 @@ impl Store for PgStore {
             .fetch_optional(&self.pool)
             .await?
             .ok_or_else(|| StoreError::NotFound(format!("no such instruction {instruction_id}")))?;
-        Self::instruction_from_row(&row)
+        let record = Self::instruction_from_row(&row)?;
+        // Ruling G7's read half: every read of a flagged Instruction
+        // re-proves the certification hash — VALIDATE_IN's byte-integrity
+        // gate, enforced at the store so no read path can skip it.
+        Self::prove_content_sha(
+            "Instruction",
+            instruction_id,
+            record.flagged,
+            record.content_sha.as_deref(),
+            &Self::instruction_body(&record),
+        )?;
+        Ok(record)
     }
 
     async fn record_regular_output(
         &self,
+        job_id: Uuid,
         instruction_ref: Uuid,
         sources: &[SourceDraw],
         skew: bool,
         window: i64,
     ) -> Result<f64, StoreError> {
+        // H3(3): the disclosure carries the disclosing job's identity —
+        // XIII.1 means what it says; 'store' was an anonymous surface.
+        self.guard_actor(job_id, "record_regular_output", false)
+            .await?;
+        if window < 1 {
+            return Err(StoreError::ValidationFailed(
+                "the trailing window is at least 1 (§6.3; a zero window silently \
+                 disables escalation — B2)"
+                    .into(),
+            ));
+        }
         sqlx::query(
             r#"INSERT INTO regular_outputs
                  (output_id, instruction_ref, sources_drawn, skew,
                   schema_name, schema_version, produced_by)
-               VALUES ($1, $2, $3, $4, 'RegularOutput', $5, 'store')"#,
+               VALUES ($1, $2, $3, $4, 'RegularOutput', $5, $6)"#,
         )
         .bind(Uuid::now_v7())
         .bind(instruction_ref)
         .bind(serialize_sources(sources))
         .bind(skew)
         .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id.to_string())
         .execute(&self.pool)
         .await?;
         // The trailing-window skew share (§6.3): of the last `window`
@@ -4047,17 +4493,21 @@ impl Store for PgStore {
         Ok(status)
     }
 
-    async fn raise_bias_warning(&self, scope: &str) -> Result<(), StoreError> {
+    async fn raise_bias_warning(&self, job_id: Uuid, scope: &str) -> Result<(), StoreError> {
+        // H3(3): the raise carries the disclosing job's identity (XIII.1).
+        self.guard_actor(job_id, "raise_bias_warning", false)
+            .await?;
         // Raise iff none stands: a SILENCED scope is not re-raised until
         // lifted; a STANDING one keeps counting without a second raise.
         let inserted = sqlx::query(
             r#"INSERT INTO bias_warnings
                  (scope, schema_name, schema_version, produced_by)
-               VALUES ($1, 'BiasWarning', $2, 'store')
+               VALUES ($1, 'BiasWarning', $2, $3)
                ON CONFLICT (scope) DO NOTHING"#,
         )
         .bind(scope)
         .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id.to_string())
         .execute(&self.pool)
         .await?;
         if inserted.rows_affected() > 0 {
@@ -4066,7 +4516,7 @@ impl Store for PgStore {
                 LogEvent::BiasWarning,
                 &serde_json::json!({ "scope": scope, "status": "STANDING" }),
                 Severity::Warning,
-                "store",
+                &job_id.to_string(),
             )
             .await?;
         }
@@ -4188,12 +4638,53 @@ impl Store for PgStore {
             }
         }
         // B.2: every returned item carries real provenance — the nil floor,
-        // mirroring the evidence rule. (Item resolution is the Deacon's
-        // threshold, section I.)
+        // mirroring the evidence rule.
         for (i, item) in draft.items.iter().enumerate() {
             if item.item_ref.is_nil() || item.provenance_ref.is_nil() {
                 return Err(StoreError::ValidationFailed(format!(
                     "item {i} carries a nil ref; a Return hands back things that exist (B.2)"
+                )));
+            }
+        }
+        // SC-L01, the items half — full item resolution at the Deacon's
+        // threshold (SLICE_09 §6 finding 7's pin; docs/dev/SLICE_10.md §1).
+        // The resolution set is generous but real. An item_ref may name:
+        //   - a quarantine item (external material handed back under
+        //     stewardship, A.12),
+        //   - a node (a corpus atom, doc 3 §2.1),
+        //   - a refined artifact (the Student's own product, Handbook §1.2b),
+        //   - a link (an organization change, doc 3 §2.3).
+        // A provenance_ref may name:
+        //   - a ProvenanceChain (C.2: a chain_ref in provenance_chains — the
+        //     arrival story of external-origin material), or
+        //   - an elected item whose election carries its chain (env-item
+        //     provenance, A.8's contents index).
+        // A ref outside that set names nothing: refused before any write,
+        // never persisted (B.2).
+        for (i, item) in draft.items.iter().enumerate() {
+            let (item_resolves, provenance_resolves): (bool, bool) = sqlx::query_as(
+                r#"SELECT
+                     EXISTS(SELECT 1 FROM quarantine_items WHERE item_ref = $1)
+                       OR EXISTS(SELECT 1 FROM nodes WHERE node_id = $1)
+                       OR EXISTS(SELECT 1 FROM refined_artifacts WHERE artifact_id = $1)
+                       OR EXISTS(SELECT 1 FROM links WHERE link_id = $1),
+                     EXISTS(SELECT 1 FROM provenance_chains WHERE chain_ref = $2)
+                       OR EXISTS(SELECT 1 FROM environment_items WHERE item_ref = $2)"#,
+            )
+            .bind(item.item_ref)
+            .bind(item.provenance_ref)
+            .fetch_one(&self.pool)
+            .await?;
+            if !item_resolves {
+                return Err(StoreError::ValidationFailed(format!(
+                    "item {i}'s item_ref resolves to no quarantine item, node, refined \
+                     artifact, or link; a Return hands back things that exist (B.2)"
+                )));
+            }
+            if !provenance_resolves {
+                return Err(StoreError::ValidationFailed(format!(
+                    "item {i}'s provenance_ref resolves to no provenance chain or \
+                     elected-item provenance; a Return's items carry real provenance (B.2)"
                 )));
             }
         }
@@ -4250,18 +4741,30 @@ impl Store for PgStore {
                 existing.student_env_ref
             )));
         }
+        // Ruling G7: hash at flag, byte-strength, CAS on revision.
+        let content_sha = Self::sha256_of_canonical(&Self::return_body(&existing));
         let row = sqlx::query(
-            r#"UPDATE returns SET flagged = true, revision = revision + 1
-               WHERE return_id = $1 AND NOT flagged
+            r#"UPDATE returns
+               SET flagged = true, content_sha = $3, revision = revision + 1
+               WHERE return_id = $1 AND NOT flagged AND revision = $2
                RETURNING *"#,
         )
         .bind(return_id)
+        .bind(existing.revision)
+        .bind(&content_sha)
         .fetch_optional(&self.pool)
         .await?;
         // Already flagged: idempotent read-back, but no second
         // RETURN_FLAGGED event — the log testifies one certification.
         let Some(row) = row else {
-            return self.get_return(return_id).await;
+            let now = self.get_return(return_id).await?;
+            if !now.flagged {
+                return Err(StoreError::StaleRevision {
+                    expected: existing.revision,
+                    subject: format!("return:{return_id}"),
+                });
+            }
+            return Ok(now);
         };
         let record = Self::return_from_row(&row)?;
         self.append_log(
@@ -4281,7 +4784,16 @@ impl Store for PgStore {
             .fetch_optional(&self.pool)
             .await?
             .ok_or_else(|| StoreError::NotFound(format!("no such return {return_id}")))?;
-        Self::return_from_row(&row)
+        let record = Self::return_from_row(&row)?;
+        // Ruling G7's read half, same as the Instruction's.
+        Self::prove_content_sha(
+            "Return",
+            return_id,
+            record.flagged,
+            record.content_sha.as_deref(),
+            &Self::return_body(&record),
+        )?;
+        Ok(record)
     }
 
     async fn persist_refined_artifact(
@@ -4420,6 +4932,780 @@ impl Store for PgStore {
                 .fetch_all(&self.pool)
                 .await?;
         rows.iter().map(Self::refined_artifact_from_row).collect()
+    }
+    // ---- the threshold & the J-floor (Dogma Book II §1; docs/dev/SLICE_10.md) ----
+
+    async fn author_mandate(
+        &self,
+        actor: &str,
+        draft: &MandateDraft,
+    ) -> Result<MandateRecord, StoreError> {
+        // The shape half of SC-J02: kind/recipient coherence, typed
+        // locators, query-shaped demands rejected.
+        validate_mandate_shape(draft).map_err(StoreError::ValidationFailed)?;
+        if !draft.trip_budget.is_object() {
+            return Err(StoreError::ValidationFailed(
+                "trip_budget must be an object (C.4)".into(),
+            ));
+        }
+        // The resolution half: the recipient exists and is what the kind
+        // demands; a source_id names a registered source or fails —
+        // "unknown source_id" is an authorship failure, not a trip failure.
+        match draft.kind {
+            MandateKind::Canon => {
+                let env = self
+                    .get_environment(draft.teacher_env_ref.expect("shape-validated"))
+                    .await?;
+                if env.kind != EnvKind::Teacher {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "a canon collects for a Teacher; {} is a {} room (C.4)",
+                        env.env_id, env.kind
+                    )));
+                }
+                if env.status != EnvStatus::Live {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "the recipient room is {}; a canon charters living work (A.8)",
+                        env.status
+                    )));
+                }
+            }
+            MandateKind::Writ => {
+                let matrix = self
+                    .get_matrix(draft.matrix_ref.expect("shape-validated"))
+                    .await?;
+                if matrix.status != MatrixStatus::Cardinal {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "a writ feeds a Cardinal matrix; {} is {} (Handbook §1.2)",
+                        matrix.matrix_id, matrix.status
+                    )));
+                }
+                let MandateDemands::WritTargets(targets) = &draft.demands else {
+                    unreachable!("shape-validated: a writ carries targets");
+                };
+                let registry = self.get_config("known_source_ids").await?;
+                // known_source_ids parses as an array or this read refuses —
+                // an empty roster fabricated from a mistyped constant would
+                // reject every writ under the WRONG reason (unknown source),
+                // swallowing the type error (SC-H07; this site is the class's
+                // fourth survivor, caught by the slice-10 workspace sweep,
+                // arch_walls.rs).
+                let known: Vec<&str> = registry
+                    .value
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                    .ok_or_else(|| {
+                        StoreError::ValidationFailed(
+                            "known_source_ids is not an array; no fabricated default \
+                             stands in for a constant (SC-H07)"
+                                .into(),
+                        )
+                    })?;
+                for (i, target) in targets.iter().enumerate() {
+                    if let Locator::SourceId(id) = &target.locator {
+                        if !known.contains(&id.as_str()) {
+                            return Err(StoreError::ValidationFailed(format!(
+                                "writ demand {i} names unknown source_id '{id}'; a writ's \
+                                 targets resolve at authorship, before any trip (SC-J02)"
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        let demands = match &draft.demands {
+            MandateDemands::CanonClauses(clauses) => serde_json::Value::Array(
+                clauses
+                    .iter()
+                    .map(|c| serde_json::json!({ "clause": c }))
+                    .collect(),
+            ),
+            MandateDemands::WritTargets(targets) => serde_json::Value::Array(
+                targets
+                    .iter()
+                    .map(|t| {
+                        serde_json::json!({
+                            "locator": { "kind": t.locator.kind(), "value": t.locator.value() },
+                            "note": t.note,
+                        })
+                    })
+                    .collect(),
+            ),
+        };
+        let serialized = format!("{demands} {}", draft.trip_budget);
+        if let Some(pattern) = secrets::scan(&serialized) {
+            return Err(StoreError::SecretDetected(format!(
+                "mandate text matched secret pattern '{pattern}' (Law XV.2)"
+            )));
+        }
+        let mandate_id = Uuid::now_v7();
+        let mut tx = self.pool.begin().await?;
+        Self::set_actor_class(&mut tx, SOVEREIGN_CLASS).await?;
+        let row = sqlx::query(
+            r#"INSERT INTO mandates
+                 (mandate_id, kind, teacher_env_ref, matrix_ref, demands, trip_budget,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, 'MandateRecord', $7, $8)
+               RETURNING *"#,
+        )
+        .bind(mandate_id)
+        .bind(draft.kind.as_str())
+        .bind(draft.teacher_env_ref)
+        .bind(draft.matrix_ref)
+        .bind(&demands)
+        .bind(&draft.trip_budget)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.append_log(
+            &mandate_id.to_string(),
+            LogEvent::MandateAuthored,
+            &serde_json::json!({ "kind": draft.kind.as_str() }),
+            Severity::Info,
+            actor,
+        )
+        .await?;
+        Self::mandate_from_row(&row)
+    }
+
+    async fn get_mandate(&self, mandate_id: Uuid) -> Result<MandateRecord, StoreError> {
+        let row = sqlx::query("SELECT * FROM mandates WHERE mandate_id = $1")
+            .bind(mandate_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such mandate {mandate_id}")))?;
+        Self::mandate_from_row(&row)
+    }
+
+    async fn append_chain_entry(
+        &self,
+        job_id: Uuid,
+        draft: &ChainEntryDraft,
+    ) -> Result<ChainEntry, StoreError> {
+        let job = self
+            .guard_actor(job_id, "append_chain_entry", false)
+            .await?;
+        if let Some(pattern) = secrets::scan(&draft.prompt_or_reason) {
+            return Err(StoreError::SecretDetected(format!(
+                "chain entry matched secret pattern '{pattern}' (Law XV.2)"
+            )));
+        }
+        if draft.prompt_or_reason.trim().is_empty() {
+            return Err(StoreError::ProvenanceIncomplete(
+                "an arrival without a story is exactly what the chain exists to prevent (C.2)"
+                    .into(),
+            ));
+        }
+        // A labor appends under its own mandate only.
+        if let Some(mandate_ref) = draft.mandate_ref {
+            if job.brief_ref != Some(mandate_ref) {
+                return Err(StoreError::ValidationFailed(format!(
+                    "job {job_id} cites mandate {mandate_ref} but labors under {:?}; \
+                     a chain entry cites the hand that sent it (C.2)",
+                    job.brief_ref
+                )));
+            }
+            self.get_mandate(mandate_ref).await?;
+        }
+        let produced = serde_json::Value::Array(
+            draft
+                .produced
+                .iter()
+                .map(|u| serde_json::Value::String(u.to_string()))
+                .collect(),
+        );
+        // The store issues the next seq; the grammar trigger holds the root
+        // and the gapless-append rules. Chains are single-writer per subject
+        // (one in-flight fetching labor per item, §4.2), so a same-seq race
+        // is not a normal path — but should two appends collide on the
+        // (chain_ref, link_seq) primary key, the loser surfaces a typed
+        // StaleRevision: the caller re-reads the chain and appends afresh,
+        // never a silent gap or an opaque error.
+        let row = sqlx::query(
+            r#"INSERT INTO provenance_chains
+                 (chain_ref, link_seq, kind, actor_job_ref, mandate_ref, prompt_or_reason,
+                  produced, schema_name, schema_version, produced_by)
+               VALUES ($1,
+                 (SELECT COALESCE(MAX(link_seq) + 1, 0) FROM provenance_chains WHERE chain_ref = $1),
+                 $2, $3, $4, $5, $6, 'ChainEntry', $7, $8)
+               RETURNING *"#,
+        )
+        .bind(draft.chain_ref)
+        .bind(draft.kind.as_str())
+        .bind(job_id)
+        .bind(draft.mandate_ref)
+        .bind(&draft.prompt_or_reason)
+        .bind(&produced)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id.to_string())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.message().contains("PROVENANCE_INCOMPLETE") => {
+                StoreError::ProvenanceIncomplete(db.message().to_string())
+            }
+            sqlx::Error::Database(db) if db.code().as_deref() == Some("23505") => {
+                StoreError::StaleRevision {
+                    expected: -1,
+                    subject: format!("provenance_chain:{}", draft.chain_ref),
+                }
+            }
+            _ => StoreError::Db(e),
+        })?;
+        let entry = Self::chain_from_row(&row)?;
+        self.append_log(
+            &draft.chain_ref.to_string(),
+            LogEvent::ChainAppended,
+            &serde_json::json!({ "link_seq": entry.link_seq, "kind": entry.kind.as_str() }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Ok(entry)
+    }
+
+    async fn chain_for(&self, chain_ref: Uuid) -> Result<Vec<ChainEntry>, StoreError> {
+        let rows =
+            sqlx::query("SELECT * FROM provenance_chains WHERE chain_ref = $1 ORDER BY link_seq")
+                .bind(chain_ref)
+                .fetch_all(&self.pool)
+                .await?;
+        rows.iter().map(Self::chain_from_row).collect()
+    }
+
+    async fn quarantine_deposit(
+        &self,
+        job_id: Uuid,
+        item_ref: Uuid,
+        draft: &QuarantineDraft,
+    ) -> Result<QuarantineItem, StoreError> {
+        let job = self
+            .guard_actor(job_id, "quarantine_deposit", false)
+            .await?;
+        if job.status != JobStatus::Running {
+            return Err(StoreError::ValidationFailed(format!(
+                "external material lands mid-labor, not at {} (Law I.1)",
+                job.status
+            )));
+        }
+        if draft.filename.trim().is_empty() || draft.declared_type.trim().is_empty() {
+            return Err(StoreError::ValidationFailed(
+                "a quarantined item names its filename and declared type (A.12)".into(),
+            ));
+        }
+        if let Some(pattern) = secrets::scan(&format!("{} {}", draft.filename, draft.declared_type))
+        {
+            return Err(StoreError::SecretDetected(format!(
+                "quarantine metadata matched secret pattern '{pattern}' (Law XV.2)"
+            )));
+        }
+        // The deposit rides the depositor's OWN human charter (§1.4).
+        match (draft.mandate_ref, draft.brief_ref) {
+            (Some(mandate_ref), _) => {
+                if job.brief_ref != Some(mandate_ref) {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "job {job_id} deposits under mandate {mandate_ref} but labors under {:?}; \
+                         every arrival cites the hand that sent it (§1.4)",
+                        job.brief_ref
+                    )));
+                }
+            }
+            (None, Some(brief_ref)) => {
+                if job.brief_ref != Some(brief_ref) {
+                    return Err(StoreError::ValidationFailed(format!(
+                        "job {job_id} deposits under brief {brief_ref} but labors under {:?} (§1.4)",
+                        job.brief_ref
+                    )));
+                }
+            }
+            (None, None) => {
+                return Err(StoreError::ValidationFailed(
+                    "every arrival began in a human hand: a mandate or a brief (§1.4)".into(),
+                ));
+            }
+        }
+        // SC-J09, the substrate half: the producing chain entry stands
+        // BEFORE the item is written — memory is not trusted to survive
+        // until homecoming (§4.2).
+        let produced_entry_stands: bool = sqlx::query_scalar(
+            r#"SELECT EXISTS(SELECT 1 FROM provenance_chains
+               WHERE chain_ref = $1 AND produced ? $2)"#,
+        )
+        .bind(item_ref)
+        .bind(item_ref.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        if !produced_entry_stands {
+            return Err(StoreError::ProvenanceIncomplete(format!(
+                "no chain entry produces item {item_ref}; chain-append is in-flight, \
+                 never reconstructed (§4.2, SC-J09)"
+            )));
+        }
+        let row = sqlx::query(
+            r#"INSERT INTO quarantine_items
+                 (item_ref, origin_job_ref, mandate_ref, brief_ref, filename, declared_type,
+                  content, schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'QuarantineItem', $8, $9)
+               ON CONFLICT (item_ref) DO NOTHING
+               RETURNING *"#,
+        )
+        .bind(item_ref)
+        .bind(job_id)
+        .bind(draft.mandate_ref)
+        .bind(draft.brief_ref)
+        .bind(&draft.filename)
+        .bind(&draft.declared_type)
+        .bind(&draft.content)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        let item = match row {
+            Some(row) => Self::quarantine_from_row(&row)?,
+            // Law I.3: a retried deposit converges on the standing item.
+            None => self.get_quarantine_item(item_ref).await?,
+        };
+        // The log names the PERSISTED item's metadata, not the incoming
+        // draft's: on a converging redeposit the standing item wins (its
+        // substance is frozen), so a draft that differs from it must never
+        // be what the record shows.
+        self.append_log(
+            &item_ref.to_string(),
+            LogEvent::Quarantined,
+            &serde_json::json!({ "filename": item.filename, "declared_type": item.declared_type }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Ok(item)
+    }
+
+    async fn get_quarantine_item(&self, item_ref: Uuid) -> Result<QuarantineItem, StoreError> {
+        let row = sqlx::query("SELECT * FROM quarantine_items WHERE item_ref = $1")
+            .bind(item_ref)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such quarantine item {item_ref}")))?;
+        Self::quarantine_from_row(&row)
+    }
+
+    async fn quarantine_items_for(
+        &self,
+        mandate_ref: Uuid,
+    ) -> Result<Vec<QuarantineItem>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT * FROM quarantine_items WHERE mandate_ref = $1 ORDER BY held_since, item_ref",
+        )
+        .bind(mandate_ref)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(Self::quarantine_from_row).collect()
+    }
+
+    async fn record_scan_verdict(
+        &self,
+        item_ref: Uuid,
+        verdict: ScanVerdictKind,
+        engine: &ScanEngine,
+    ) -> Result<ScanVerdict, StoreError> {
+        self.get_quarantine_item(item_ref).await?;
+        if engine.alias.trim().is_empty() || engine.version.trim().is_empty() {
+            return Err(StoreError::ValidationFailed(
+                "a verdict names its engine by alias and version (A.12; Law XV.1)".into(),
+            ));
+        }
+        let scan_id = Uuid::now_v7();
+        let mut tx = self.pool.begin().await?;
+        Self::set_actor_class(&mut tx, DEACON_CLASS).await?;
+        let row = sqlx::query(
+            r#"INSERT INTO scan_verdicts
+                 (scan_id, item_ref, verdict, engine_alias, engine_version, signature_rev,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, 'ScanVerdict', $7, $8)
+               RETURNING *"#,
+        )
+        .bind(scan_id)
+        .bind(item_ref)
+        .bind(verdict.as_str())
+        .bind(&engine.alias)
+        .bind(&engine.version)
+        .bind(&engine.signature_rev)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(DEACON_OFFICE_ID)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE quarantine_items SET scan_ref = $2, revision = revision + 1 WHERE item_ref = $1",
+        )
+        .bind(item_ref)
+        .bind(scan_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let severity = if verdict == ScanVerdictKind::Clean {
+            Severity::Info
+        } else {
+            Severity::Warning
+        };
+        self.append_log(
+            &item_ref.to_string(),
+            LogEvent::ScanRecorded,
+            &serde_json::json!({ "verdict": verdict.as_str(), "engine": engine.alias }),
+            severity,
+            DEACON_OFFICE_ID,
+        )
+        .await?;
+        Self::verdict_from_row(&row)
+    }
+
+    async fn latest_verdict(&self, item_ref: Uuid) -> Result<Option<ScanVerdict>, StoreError> {
+        let row = sqlx::query(
+            r#"SELECT * FROM scan_verdicts WHERE item_ref = $1
+               ORDER BY scanned_at DESC, scan_id DESC LIMIT 1"#,
+        )
+        .bind(item_ref)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref().map(Self::verdict_from_row).transpose()
+    }
+
+    async fn assemble_manifest(
+        &self,
+        mandate_ref: Uuid,
+        trip_job_ref: Uuid,
+    ) -> Result<Manifest, StoreError> {
+        // One Manifest per mandate-trip: re-assembly converges.
+        if let Some(row) = sqlx::query("SELECT * FROM manifests WHERE trip_job_ref = $1")
+            .bind(trip_job_ref)
+            .fetch_optional(&self.pool)
+            .await?
+        {
+            let existing = Self::manifest_from_row(&row)?;
+            if existing.mandate_ref != mandate_ref {
+                return Err(StoreError::ValidationFailed(format!(
+                    "trip {trip_job_ref} already has a Manifest under mandate {}; \
+                     one Manifest serves one mandate-trip (ruling G11)",
+                    existing.mandate_ref
+                )));
+            }
+            return Ok(existing);
+        }
+        self.get_mandate(mandate_ref).await?;
+        let trip = self.get_job(trip_job_ref).await?;
+        if trip.brief_ref != Some(mandate_ref) {
+            return Err(StoreError::ValidationFailed(format!(
+                "job {trip_job_ref} is not the mandate's own trip; Manifests are never \
+                 pooled across trips (ruling G11)"
+            )));
+        }
+        let items = sqlx::query(
+            r#"SELECT * FROM quarantine_items
+               WHERE mandate_ref = $1 AND origin_job_ref = $2
+               ORDER BY held_since, item_ref"#,
+        )
+        .bind(mandate_ref)
+        .bind(trip_job_ref)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut entries = Vec::with_capacity(items.len());
+        for row in &items {
+            let item = Self::quarantine_from_row(row)?;
+            let verdict = self.latest_verdict(item.item_ref).await?;
+            let chain = self.chain_for(item.item_ref).await?;
+            entries.push(serde_json::json!({
+                "item_ref": item.item_ref.to_string(),
+                "filename": item.filename,
+                "verdict": verdict.as_ref().map(|v| v.verdict.as_str()).unwrap_or("UNSCANNED"),
+                "scan_id": verdict.as_ref().map(|v| v.scan_id.to_string()),
+                "chain": chain.iter().map(|e| serde_json::json!({
+                    "link_seq": e.link_seq,
+                    "kind": e.kind.as_str(),
+                    "actor": e.actor_job_ref.to_string(),
+                    "prompt_or_reason": e.prompt_or_reason,
+                    "produced": e.produced.iter().map(|u| u.to_string()).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            }));
+        }
+        // SC-I07b — graduated legibility, never blocking, never silent.
+        let batch_threshold = self
+            .get_config("admission_batch_threshold")
+            .await?
+            .value
+            .as_i64()
+            .ok_or_else(|| {
+                StoreError::ValidationFailed(
+                    "admission_batch_threshold is not an integer; no fabricated default \
+                     stands in for it (SC-H07)"
+                        .into(),
+                )
+            })?;
+        let window_ms = self
+            .get_config("admission_rate_window_ms")
+            .await?
+            .value
+            .as_i64()
+            .ok_or_else(|| {
+                StoreError::ValidationFailed(
+                    "admission_rate_window_ms is not an integer (SC-H07)".into(),
+                )
+            })?;
+        let rate_threshold = self
+            .get_config("admission_rate_threshold")
+            .await?
+            .value
+            .as_i64()
+            .ok_or_else(|| {
+                StoreError::ValidationFailed(
+                    "admission_rate_threshold is not an integer (SC-H07)".into(),
+                )
+            })?;
+        let recent_consents: i64 = sqlx::query_scalar(
+            r#"SELECT count(*) FROM consent_records
+               WHERE scan_ref IS NOT NULL
+                 AND decided_at > now() - ($1::double precision * interval '1 millisecond')"#,
+        )
+        .bind(window_ms as f64)
+        .fetch_one(&self.pool)
+        .await?;
+        let over_batch = entries.len() as i64 > batch_threshold;
+        let over_rate = recent_consents > rate_threshold;
+        let standing_notice = (over_batch || over_rate).then(|| {
+            format!(
+                "STANDING NOTICE (SC-I07b): {} items against a batch threshold of \
+                 {batch_threshold}; {recent_consents} admission consents in the trailing \
+                 window against a threshold of {rate_threshold}. The gate does not block; \
+                 it makes the rate legible. Terminal answers: acknowledge, or silence \
+                 with suppressed logging (Book II §1).",
+                entries.len()
+            )
+        });
+        let manifest_id = Uuid::now_v7();
+        let mut tx = self.pool.begin().await?;
+        Self::set_actor_class(&mut tx, DEACON_CLASS).await?;
+        let row = sqlx::query(
+            r#"INSERT INTO manifests
+                 (manifest_id, mandate_ref, trip_job_ref, items, standing_notice,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, 'Manifest', $6, $7)
+               ON CONFLICT (trip_job_ref) DO NOTHING
+               RETURNING *"#,
+        )
+        .bind(manifest_id)
+        .bind(mandate_ref)
+        .bind(trip_job_ref)
+        .bind(serde_json::Value::Array(entries))
+        .bind(&standing_notice)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(DEACON_OFFICE_ID)
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let manifest = match row {
+            Some(row) => Self::manifest_from_row(&row)?,
+            None => {
+                // A racing assembly landed first; converge on it.
+                let row = sqlx::query("SELECT * FROM manifests WHERE trip_job_ref = $1")
+                    .bind(trip_job_ref)
+                    .fetch_one(&self.pool)
+                    .await?;
+                return Self::manifest_from_row(&row);
+            }
+        };
+        self.append_log(
+            &manifest.manifest_id.to_string(),
+            LogEvent::ManifestPresented,
+            &serde_json::json!({
+                "mandate": mandate_ref.to_string(),
+                "items": manifest.items.as_array().map(Vec::len).unwrap_or(0),
+                "standing_notice": manifest.standing_notice.is_some(),
+            }),
+            Severity::Info,
+            DEACON_OFFICE_ID,
+        )
+        .await?;
+        Ok(manifest)
+    }
+
+    async fn get_manifest(&self, manifest_id: Uuid) -> Result<Manifest, StoreError> {
+        let row = sqlx::query("SELECT * FROM manifests WHERE manifest_id = $1")
+            .bind(manifest_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("no such manifest {manifest_id}")))?;
+        Self::manifest_from_row(&row)
+    }
+
+    async fn consent_admission(
+        &self,
+        actor: &str,
+        subject_ref: Uuid,
+        scope: ConsentScope,
+        decision: ConsentDecision,
+        scan_ref: Option<Uuid>,
+    ) -> Result<Uuid, StoreError> {
+        if !matches!(
+            decision,
+            ConsentDecision::Admitted | ConsentDecision::Rejected
+        ) {
+            return Err(StoreError::ValidationFailed(format!(
+                "{decision} is not a threshold answer; the sovereign admits or rejects (A.12)"
+            )));
+        }
+        // What the consent binds, by scope.
+        let item_refs: Vec<Uuid> = match scope {
+            ConsentScope::Item => {
+                let item = self.get_quarantine_item(subject_ref).await?;
+                if decision == ConsentDecision::Admitted {
+                    let latest = self.latest_verdict(subject_ref).await?;
+                    let Some(latest) = latest else {
+                        return Err(StoreError::ValidationFailed(
+                            "consent over an unscanned item admits nothing; the Deacon \
+                             never presents the unscanned as admissible (Book II §1)"
+                                .into(),
+                        ));
+                    };
+                    if scan_ref != Some(latest.scan_id) {
+                        return Err(StoreError::ValidationFailed(
+                            "an admitting consent names the scan it saw, and it must be \
+                             the item's latest (Book II §1)"
+                                .into(),
+                        ));
+                    }
+                }
+                vec![item.item_ref]
+            }
+            ConsentScope::Batch => {
+                if scan_ref.is_some() {
+                    return Err(StoreError::ValidationFailed(
+                        "a batch consent binds through its Manifest's listings, not a \
+                         single scan (Book II §1)"
+                            .into(),
+                    ));
+                }
+                let manifest = self.get_manifest(subject_ref).await?;
+                manifest
+                    .items
+                    .as_array()
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|e| e.get("item_ref").and_then(|v| v.as_str()))
+                            .filter_map(|s| Uuid::parse_str(s).ok())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+        };
+        let consent_id = Uuid::now_v7();
+        let mut tx = self.pool.begin().await?;
+        Self::set_actor_class(&mut tx, SOVEREIGN_CLASS).await?;
+        sqlx::query(
+            r#"INSERT INTO consent_records
+                 (consent_id, subject_ref, decision, scope, decided_by, scan_ref,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, $5, $6, 'ConsentRecord', $7, $5)"#,
+        )
+        .bind(consent_id)
+        .bind(subject_ref)
+        .bind(if decision == ConsentDecision::Admitted {
+            "ADMITTED"
+        } else {
+            "REJECTED"
+        })
+        .bind(scope.as_str())
+        .bind(actor)
+        .bind(scan_ref)
+        .bind(RECORD_SCHEMA_VERSION)
+        .execute(&mut *tx)
+        .await?;
+        for item_ref in &item_refs {
+            sqlx::query(
+                r#"UPDATE quarantine_items SET consent_ref = $2, revision = revision + 1
+                   WHERE item_ref = $1"#,
+            )
+            .bind(item_ref)
+            .bind(consent_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        let event = if decision == ConsentDecision::Admitted {
+            LogEvent::Admitted
+        } else {
+            LogEvent::Rejected
+        };
+        for item_ref in &item_refs {
+            self.append_log(
+                &item_ref.to_string(),
+                event,
+                &serde_json::json!({ "consent": consent_id.to_string(), "scope": scope.as_str() }),
+                Severity::Info,
+                actor,
+            )
+            .await?;
+        }
+        Ok(consent_id)
+    }
+
+    async fn clear_for_admission(&self, item_ref: Uuid) -> Result<QuarantineItem, StoreError> {
+        let item = self.get_quarantine_item(item_ref).await?;
+        if item.admitted_node_ref.is_some() {
+            return Ok(item); // already through the gate; converged
+        }
+        self.prove_admission_conjunction(&item).await?;
+        Ok(item)
+    }
+
+    async fn mark_admitted(
+        &self,
+        item_ref: Uuid,
+        node_ref: Uuid,
+    ) -> Result<QuarantineItem, StoreError> {
+        let item = self.get_quarantine_item(item_ref).await?;
+        match item.admitted_node_ref {
+            Some(existing) if existing == node_ref => return Ok(item), // converged
+            Some(existing) => {
+                return Err(StoreError::ValidationFailed(format!(
+                    "item {item_ref} was admitted as node {existing}; admission is \
+                     recorded exactly once (Law I.3)"
+                )));
+            }
+            None => {}
+        }
+        self.get_node(node_ref).await?;
+        self.prove_admission_conjunction(&item).await?;
+        let updated = sqlx::query(
+            r#"UPDATE quarantine_items SET admitted_node_ref = $2, revision = revision + 1
+               WHERE item_ref = $1 AND admitted_node_ref IS NULL"#,
+        )
+        .bind(item_ref)
+        .bind(node_ref)
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            // A racing admission landed first; converge iff it agrees.
+            let now = self.get_quarantine_item(item_ref).await?;
+            return match now.admitted_node_ref {
+                Some(existing) if existing == node_ref => Ok(now),
+                Some(existing) => Err(StoreError::ValidationFailed(format!(
+                    "item {item_ref} was admitted as node {existing}; admission is \
+                     recorded exactly once (Law I.3)"
+                ))),
+                None => Err(StoreError::ValidationFailed(format!(
+                    "admission of {item_ref} raced and did not land; re-read and retry (XI.3)"
+                ))),
+            };
+        }
+        self.append_log(
+            &item_ref.to_string(),
+            LogEvent::Admitted,
+            &serde_json::json!({ "node": node_ref.to_string() }),
+            Severity::Info,
+            DEACON_OFFICE_ID,
+        )
+        .await?;
+        self.get_quarantine_item(item_ref).await
     }
 }
 

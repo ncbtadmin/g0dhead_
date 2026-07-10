@@ -124,6 +124,11 @@ pub struct InstructionRecord {
     pub skew: bool,
     pub supersedes_ref: Option<Uuid>,
     pub flagged: bool,
+    /// Byte-integrity certification (ruling G7): the SHA-256 of the
+    /// canonical body, persisted at FLAG and re-proven at every read of the
+    /// flagged record. None until flagged. Field-wise reconstruction remains
+    /// for the time-varying clauses; the hash answers integrity.
+    pub content_sha: Option<String>,
     pub revision: i32,
     pub envelope: Envelope,
 }

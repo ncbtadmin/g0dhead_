@@ -202,30 +202,44 @@ async fn floor_claims<S: Store>(
     Ok(claims)
 }
 
-/// Law VII for the trial's labors: a mid-labor failure ends in a refusal
-/// on the record — never a job stranded live. Best-effort (a budget
-/// exhaustion was already refused by the store itself).
-async fn refuse_labor<S: Store>(store: &S, job_id: Uuid, subject: Uuid, err: &AuditError) {
+/// Law VII for the trial's labors: a halt after RUNNING ends in a refusal
+/// on the record — never a job stranded live — and a failed refusal write
+/// propagates as a hard error, never swallowed (SC-E05). BudgetExceeded is
+/// the one lawful skip: the store already enacted that refusal itself
+/// (already-recorded, not failed-to-record — G5). The persisted detail
+/// names the halt's stable code token, never the error's own text.
+async fn refuse_labor<S: Store>(
+    store: &S,
+    job_id: Uuid,
+    subject: Uuid,
+    err: &AuditError,
+) -> Result<(), StoreError> {
     if matches!(err, AuditError::Store(StoreError::BudgetExceeded(_))) {
-        return;
+        return Ok(());
     }
     let (law, reason) = match err {
         AuditError::Store(StoreError::LeaseConflict(_)) => (Law::XI, RefusalReason::LeaseConflict),
         AuditError::Store(StoreError::FlagUntrusted(_)) => (Law::III, RefusalReason::FlagUntrusted),
-        _ => (Law::II, RefusalReason::ValidationFailed),
+        _ => godhead_schemas::stage_code(),
     };
-    let _ = store
+    let token = err.to_string();
+    let token = token.split(':').next().unwrap_or("UNNAMED");
+    store
         .refuse(
             job_id,
             &RefusalDraft {
                 law,
                 reason,
                 subject_refs: vec![subject.to_string()],
-                detail: format!("trial labor could not complete: {err}"),
+                detail: format!(
+                    "the trial labor halted after RUNNING ({token}); the job ends refused, \
+                     never stranded (Law VII)"
+                ),
                 preserved_refs: vec![],
             },
         )
-        .await;
+        .await?;
+    Ok(())
 }
 
 /// One auditor's whole life: spawn, read the matrix, judge on the floor,
@@ -245,7 +259,7 @@ pub async fn run_auditor<S: Store>(
     match auditor_labor(store, job.job_id, matrix_id, who).await {
         Ok(report) => Ok(report),
         Err(err) => {
-            refuse_labor(store, job.job_id, matrix_id, &err).await;
+            refuse_labor(store, job.job_id, matrix_id, &err).await?;
             Err(err)
         }
     }
@@ -412,7 +426,7 @@ pub async fn reconcile<S: Store>(
     match labor.await {
         Ok(proposal) => Ok(proposal),
         Err(err) => {
-            refuse_labor(store, job.job_id, matrix_id, &err).await;
+            refuse_labor(store, job.job_id, matrix_id, &err).await?;
             Err(err)
         }
     }

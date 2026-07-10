@@ -18,6 +18,7 @@ async-trait.workspace = true
 godhead-intake = { path = "../godhead-intake" }
 tokio.workspace = true
 sqlx.workspace = true
+serial_test.workspace = true
 
 [lints]
 workspace = true

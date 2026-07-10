@@ -6,7 +6,7 @@
 use crate::{ConcordatError, SUPPORTED_CONCORDAT};
 use godhead_schemas::{
     AgentType, Budgets, CapabilityAction, FlagDraft, InstructionDraft, InstructionRecord, JobDraft,
-    JobStatus, Law, RefusalDraft, RefusalReason, TestableAs, Tier,
+    JobStatus, RefusalDraft, TestableAs, Tier,
 };
 use godhead_store::{Store, StoreError};
 use semver::{Version, VersionReq};
@@ -38,10 +38,14 @@ pub async fn lint_instruction<S: Store>(
     let concordat = match store.get_concordat(&draft.concordat_version).await {
         Ok(c) => c,
         Err(_) => {
+            // 'v' — the version precondition, distinct from the six lint
+            // clauses (a)–(f): an unadopted (unretrievable) citation is
+            // skew-shaped, and the clause→code map carries it to
+            // SCHEMA_MISMATCH (ruling G1; SC-A05/SC-K03).
             return Ok(Err(LintFailure {
-                clause: 'b',
+                clause: 'v',
                 detail: format!("cited Concordat {} is not adopted", draft.concordat_version),
-            }))
+            }));
         }
     };
     let table = concordat
@@ -206,11 +210,14 @@ pub async fn lint_instruction<S: Store>(
                 draft.target_tier
             ))
         })?;
+    // Checked fold: an adversarial budget census fails clause (e) legibly,
+    // it never debug-panics a RUNNING labor (B1 aggravation; SC-E05).
     let total: i64 = draft
         .steps
         .iter()
         .map(|s| s.budget_hint_tokens.max(0))
-        .sum();
+        .try_fold(0i64, i64::checked_add)
+        .unwrap_or(i64::MAX);
     if total > ceiling {
         return Ok(Err(LintFailure {
             clause: 'e',
@@ -398,29 +405,42 @@ pub async fn write_instruction<S: Store>(
     // The persisted detail references the clause or stage and the law
     // only — never the draft's own text, which is caller-shaped and would
     // poison the Law XV scan (and with it, the refusal record itself).
-    let (law, detail, err) = match halt {
-        LaborHalt::Invalid(failure) => (
-            Law::II,
-            format!(
-                "Executability Lint failed clause '{}' (§1.3); the emission is not echoed (Law XV)",
-                failure.clause
-            ),
-            ConcordatError::LintFailed(failure.to_string()),
-        ),
-        LaborHalt::Store { stage, source } => (
-            Law::VII,
-            format!(
-                "the Instruction labor halted at stage '{stage}' after RUNNING; the job ends refused, never stranded (Law VII)"
-            ),
-            ConcordatError::Store(source),
-        ),
+    // The persisted (law, reason) pair is derived from the halt's clause
+    // through the ONE shared map (godhead_schemas::halt_code — ruling G1),
+    // so this handler and the Student's cannot drift apart: skew-shaped
+    // clauses carry SCHEMA_MISMATCH; contract failures carry
+    // VALIDATION_FAILED; stage halts carry the labor rule's code.
+    let (law, reason, detail, err) = match halt {
+        LaborHalt::Invalid(failure) => {
+            let (law, reason) = godhead_schemas::halt_code(&failure.clause.to_string());
+            (
+                law,
+                reason,
+                format!(
+                    "Executability Lint failed clause '{}' (§1.3); the emission is not echoed (Law XV)",
+                    failure.clause
+                ),
+                ConcordatError::LintFailed(failure.to_string()),
+            )
+        }
+        LaborHalt::Store { stage, source } => {
+            let (law, reason) = godhead_schemas::stage_code();
+            (
+                law,
+                reason,
+                format!(
+                    "the Instruction labor halted at stage '{stage}' after RUNNING; the job ends refused, never stranded (Law VII)"
+                ),
+                ConcordatError::Store(source),
+            )
+        }
     };
     store
         .refuse(
             job.job_id,
             &RefusalDraft {
                 law,
-                reason: RefusalReason::ValidationFailed,
+                reason,
                 subject_refs: vec![],
                 detail,
                 preserved_refs: vec![],

@@ -18,7 +18,13 @@ pub const BIAS_SCOPE: &str = "regular_teacher_bias";
 /// live Canonical Instruction binding).
 #[must_use]
 pub fn compute_skew(sources: &[SourceDraw], skew_threshold: f64) -> bool {
-    let total: i64 = sources.iter().map(|s| s.draw_count.max(0)).sum();
+    // Checked folds: an adversarial draw census must saturate legibly, not
+    // debug-panic mid-labor (the B1 aggravation; SC-E05's class).
+    let total: i64 = sources
+        .iter()
+        .map(|s| s.draw_count.max(0))
+        .try_fold(0i64, i64::checked_add)
+        .unwrap_or(i64::MAX);
     if total == 0 {
         return false;
     }
@@ -26,18 +32,21 @@ pub fn compute_skew(sources: &[SourceDraw], skew_threshold: f64) -> bool {
         .iter()
         .filter(|s| s.canon_associated)
         .map(|s| s.draw_count.max(0))
-        .sum();
+        .try_fold(0i64, i64::checked_add)
+        .unwrap_or(i64::MAX);
     #[allow(clippy::cast_precision_loss)] // draw counts are small
     let share = canon as f64 / total as f64;
     share > skew_threshold
 }
 
-/// Discloses a Regular Teacher output (§6.3): records its draws and skew,
-/// then evaluates the trailing-window pattern and raises/keeps the standing
-/// warning. Returns whether the output was skewed and whether a pattern
-/// warning stands.
+/// Discloses a Regular Teacher output (§6.3) under the disclosing job's
+/// identity — every write path carries an authenticated identity (XIII.1;
+/// H3(3)): records its draws and skew, then evaluates the trailing-window
+/// pattern and raises/keeps the standing warning. Returns whether the
+/// output was skewed and whether a pattern warning stands.
 pub async fn disclose_regular_output<S: Store>(
     store: &S,
+    job_id: uuid::Uuid,
     instruction_ref: uuid::Uuid,
     sources: &[SourceDraw],
 ) -> Result<(bool, bool), ConcordatError> {
@@ -72,7 +81,7 @@ pub async fn disclose_regular_output<S: Store>(
 
     let skewed = compute_skew(sources, skew_threshold);
     let share = store
-        .record_regular_output(instruction_ref, sources, skewed, window)
+        .record_regular_output(job_id, instruction_ref, sources, skewed, window)
         .await?;
 
     // Pattern escalation: a sustained share over the window escalates to a
@@ -83,7 +92,7 @@ pub async fn disclose_regular_output<S: Store>(
         match state.as_deref() {
             Some("SILENCED") => false, // suppressed until the sovereign lifts it
             _ => {
-                store.raise_bias_warning(BIAS_SCOPE).await?;
+                store.raise_bias_warning(job_id, BIAS_SCOPE).await?;
                 true
             }
         }

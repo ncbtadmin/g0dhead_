@@ -32,6 +32,10 @@ pub enum StoreError {
     /// Law XV.2 — a secret-shaped string in an outbound write.
     #[error("SECRET_DETECTED: {0}")]
     SecretDetected(String),
+    /// Law V.3 / SC-J09 — an item write whose producing chain entry is
+    /// absent, or a chain that violates its own grammar.
+    #[error("PROVENANCE_INCOMPLETE: {0}")]
+    ProvenanceIncomplete(String),
     #[error("NOT_FOUND: {0}")]
     NotFound(String),
     /// A path that exists only to be refused (e.g. deleting a flag).

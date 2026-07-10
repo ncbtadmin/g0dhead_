@@ -1,13 +1,15 @@
 use crate::error::StoreError;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
-    AuditReport, AuditReportDraft, ConcordatArtifact, ConfigConstant, ConfigTier, ConsentDecision,
-    EmbeddingRecord, EnvItem, EnvKind, EnvironmentRecord, FlagDraft, FlagStatus, InstructionDraft,
-    InstructionRecord, JobDraft, JobRecord, JobStatus, JointProposal, LeaseRecord, LinkRecord,
-    LiveWeights, LogEvent, LogSnapshot, MatrixRecord, NodeDraft, NodeRecord, NormalizeOutcome,
-    OverrideRecord, PairingKind, PairingRecord, PetitionDraft, PetitionRecord, ProposalDraft,
-    ReadinessFlag, RebalanceState, RefinedArtifact, RefusalDraft, RefusalRecord, ReturnDraft,
-    ReturnManifest, Severity, SourceDraw, Tier,
+    AuditReport, AuditReportDraft, ChainEntry, ChainEntryDraft, ConcordatArtifact, ConfigConstant,
+    ConfigTier, ConsentDecision, ConsentScope, EmbeddingRecord, EnvItem, EnvKind,
+    EnvironmentRecord, FlagDraft, FlagStatus, InstructionDraft, InstructionRecord, JobDraft,
+    JobRecord, JobStatus, JointProposal, LeaseRecord, LinkRecord, LiveWeights, LogEvent,
+    LogSnapshot, MandateDraft, MandateRecord, Manifest, MatrixRecord, NodeDraft, NodeRecord,
+    NormalizeOutcome, OverrideRecord, PairingKind, PairingRecord, PetitionDraft, PetitionRecord,
+    ProposalDraft, QuarantineDraft, QuarantineItem, ReadinessFlag, RebalanceState, RefinedArtifact,
+    RefusalDraft, RefusalRecord, ReturnDraft, ReturnManifest, ScanEngine, ScanVerdict,
+    ScanVerdictKind, Severity, SourceDraw, Tier,
 };
 use semver::Version;
 use uuid::Uuid;
@@ -588,10 +590,12 @@ pub trait Store {
     async fn get_instruction(&self, instruction_id: Uuid) -> Result<InstructionRecord, StoreError>;
 
     /// Records a Regular Teacher output's bias disclosure (§6.3): the
-    /// draws and the computed skew. Returns the trailing-window skew share
-    /// after this output, for the escalation decision.
+    /// draws and the computed skew, under the disclosing job's identity —
+    /// every write path carries an authenticated identity (XIII.1; H3(3)).
+    /// Returns the trailing-window skew share after this output.
     async fn record_regular_output(
         &self,
+        job_id: Uuid,
         instruction_ref: Uuid,
         sources: &[SourceDraw],
         skew: bool,
@@ -600,9 +604,10 @@ pub trait Store {
 
     async fn bias_warning_state(&self, scope: &str) -> Result<Option<String>, StoreError>;
 
-    /// Raises the standing warning for a scope if none stands (idempotent);
-    /// logs BIAS_WARNING.
-    async fn raise_bias_warning(&self, scope: &str) -> Result<(), StoreError>;
+    /// Raises the standing warning for a scope if none stands (idempotent),
+    /// under the disclosing job's identity (XIII.1; H3(3)); logs
+    /// BIAS_WARNING.
+    async fn raise_bias_warning(&self, job_id: Uuid, scope: &str) -> Result<(), StoreError>;
 
     /// The terminal answer (§6.3): `acknowledge` keeps it standing and
     /// counting; `silence` suppresses it (logged severity: suppressed),
@@ -620,7 +625,11 @@ pub trait Store {
     /// contract (B.2) against the answered Instruction's acceptance
     /// criteria: exactly one completion entry per criterion (missing/extra
     /// invalidate); evidence mandatory in every case; `passed` is None iff
-    /// the criterion is SOVEREIGN_JUDGMENT.
+    /// the criterion is SOVEREIGN_JUDGMENT. Every item's `item_ref` and
+    /// `provenance_ref` must RESOLVE — to a quarantine item, node, refined
+    /// artifact, or link, and to a ProvenanceChain or elected-item
+    /// provenance respectively (SC-L01's items half, pinned to the Deacon's
+    /// threshold by SLICE_09 §6 finding 7).
     async fn persist_return(
         &self,
         job_id: Uuid,
@@ -651,4 +660,116 @@ pub trait Store {
 
     async fn refined_artifacts_in(&self, env_ref: Uuid)
         -> Result<Vec<RefinedArtifact>, StoreError>;
+
+    // -- the threshold & the J-floor (Dogma Book II §1; Handbook C.2/C.4;
+    //    docs/dev/SLICE_10.md) --
+    // Sovereign acts take a human actor string and no job identity (the
+    // signature is where agent-uncallability lives — SC-C07); office acts
+    // take neither: the Deacon holds office, not a job, and his paths
+    // authenticate as `office:deacon` at the substrate (ruling G10).
+
+    /// The sovereign authors a mandate (IV.4: a human-reserved action; the
+    /// substrate rejects agent authors — SC-J01). Writ demands are typed,
+    /// resolvable locators validated AT AUTHORSHIP, before any trip: a
+    /// query-shaped or unresolvable demand fails here (SC-J02, the
+    /// schema-enforced line against breadth-creep).
+    async fn author_mandate(
+        &self,
+        actor: &str,
+        draft: &MandateDraft,
+    ) -> Result<MandateRecord, StoreError>;
+
+    async fn get_mandate(&self, mandate_id: Uuid) -> Result<MandateRecord, StoreError>;
+
+    /// Chain-append in flight (§4.2; C.2): the appending labor writes its
+    /// entry BEFORE its results may be written. The store issues the next
+    /// link_seq; the substrate's grammar trigger enforces the human root
+    /// and gapless append. `produced` refs are promises the entry makes —
+    /// the item write that follows proves them (SC-J09), and the mount walk
+    /// proves resolution end-to-end.
+    async fn append_chain_entry(
+        &self,
+        job_id: Uuid,
+        draft: &ChainEntryDraft,
+    ) -> Result<ChainEntry, StoreError>;
+
+    /// The chain, root to leaf.
+    async fn chain_for(&self, chain_ref: Uuid) -> Result<Vec<ChainEntry>, StoreError>;
+
+    /// Law V.4 — external-origin content lands here and nowhere else. The
+    /// depositing job must be RUNNING and must deposit under its OWN
+    /// mandate or brief; the item's producing chain entry must already
+    /// stand (SC-J09: absent → PROVENANCE_INCOMPLETE). `item_ref` is
+    /// caller-minted like a node id, so the chain can promise it first.
+    async fn quarantine_deposit(
+        &self,
+        job_id: Uuid,
+        item_ref: Uuid,
+        draft: &QuarantineDraft,
+    ) -> Result<QuarantineItem, StoreError>;
+
+    async fn get_quarantine_item(&self, item_ref: Uuid) -> Result<QuarantineItem, StoreError>;
+
+    /// Every item a mandate's trips have landed, oldest first.
+    async fn quarantine_items_for(
+        &self,
+        mandate_ref: Uuid,
+    ) -> Result<Vec<QuarantineItem>, StoreError>;
+
+    /// The Deacon's scan record (office path, `office:deacon` at the
+    /// substrate). A re-scan is a NEW verdict; verdicts are immutable.
+    async fn record_scan_verdict(
+        &self,
+        item_ref: Uuid,
+        verdict: ScanVerdictKind,
+        engine: &ScanEngine,
+    ) -> Result<ScanVerdict, StoreError>;
+
+    /// The item's latest verdict — what admission judges against.
+    async fn latest_verdict(&self, item_ref: Uuid) -> Result<Option<ScanVerdict>, StoreError>;
+
+    /// The Deacon assembles the Manifest for one mandate-trip (office
+    /// path): items, verdicts, full chains. One Manifest per trip, never
+    /// pooled (ruling G11 — UNIQUE at the substrate); re-assembly
+    /// converges on the existing Manifest. Carries the SC-I07b standing
+    /// notice when admission volume or rate crosses the operational
+    /// constants — never blocking, never silent.
+    async fn assemble_manifest(
+        &self,
+        mandate_ref: Uuid,
+        trip_job_ref: Uuid,
+    ) -> Result<Manifest, StoreError>;
+
+    async fn get_manifest(&self, manifest_id: Uuid) -> Result<Manifest, StoreError>;
+
+    /// The sovereign's explicit consent at the threshold (Book II §1 step
+    /// 5) — the SC-C07 "admitting external material" entry: a human actor
+    /// string, no job identity. ITEM scope names the item and MUST name
+    /// the scan it saw; BATCH scope names a Manifest (whose listing binds
+    /// each item to its scan). Only ADMITTED and REJECTED are threshold
+    /// answers. Returns the consent id.
+    async fn consent_admission(
+        &self,
+        actor: &str,
+        subject_ref: Uuid,
+        scope: ConsentScope,
+        decision: ConsentDecision,
+        scan_ref: Option<Uuid>,
+    ) -> Result<Uuid, StoreError>;
+
+    /// The admission wall, read-only: proves the CLEAN + ADMITTED
+    /// conjunction for one item and returns it for handoff to the onboard
+    /// pipe at its beginning (SC-I04 — no shortcut path exists; the pipe's
+    /// own entry does the raw copy and first log).
+    async fn clear_for_admission(&self, item_ref: Uuid) -> Result<QuarantineItem, StoreError>;
+
+    /// Records the admission's convergence: re-proves the conjunction in
+    /// the same act and sets `admitted_node_ref` exactly once (Law I.3 — a
+    /// retry converges, it never re-admits). The item itself remains in
+    /// quarantine, preserved (SC-I05).
+    async fn mark_admitted(
+        &self,
+        item_ref: Uuid,
+        node_ref: Uuid,
+    ) -> Result<QuarantineItem, StoreError>;
 }

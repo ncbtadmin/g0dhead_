@@ -113,6 +113,10 @@ async fn flag_deletion_rejected() {
 /// addresses another; the store interface is the sole inter-agent surface.
 /// The witness is the source itself: godhead-store exposes no IPC, socket,
 /// or channel primitive, and its public surface is the sanctioned module set.
+/// Widened per ruling G3: the IPC needle sweep now also runs workspace-wide
+/// over DISCOVERED crates in arch_walls.rs::sc_b04_workspace_ipc_scan, which
+/// subsumes this test's store-only sweep; this test stands (tests only
+/// accumulate) and keeps the sanctioned-module assertion, which is its own.
 #[test]
 fn arch_no_agent_channel() {
     let src_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src");

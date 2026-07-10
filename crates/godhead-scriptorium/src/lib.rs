@@ -67,7 +67,11 @@ pub async fn establish<S: Store>(
 
 /// A fresh agent spun up into an environment mounts it before working
 /// (Law IX.3). Spawns a mounting job and returns it with the validated
-/// record; ENV_INVALID propagates from the store.
+/// record. Law IX.3's own text says the AGENT refuses on a failed mount —
+/// so a mount failure after RUNNING ends in a persisted `ENV_INVALID`
+/// refusal (the labor-rule debt ruling G1 ordered paid; ENV_INVALID's
+/// first construction site), and a failed refusal write propagates, never
+/// swallowed (SC-E05).
 pub async fn mount<S: Store>(
     store: &S,
     kind: EnvKind,
@@ -88,6 +92,30 @@ pub async fn mount<S: Store>(
     let job = store
         .transition_job(job.job_id, job.revision, JobStatus::Running)
         .await?;
-    let env = store.mount_environment(job.job_id, env_id).await?;
-    Ok((job, env))
+    match store.mount_environment(job.job_id, env_id).await {
+        Ok(env) => Ok((job, env)),
+        Err(err) => {
+            // BudgetExceeded is the one lawful skip: the store already
+            // enacted that refusal itself (already-recorded — G5).
+            if !matches!(err, StoreError::BudgetExceeded(_)) {
+                store
+                    .refuse(
+                        job.job_id,
+                        &godhead_schemas::RefusalDraft {
+                            law: godhead_schemas::Law::IX,
+                            reason: godhead_schemas::RefusalReason::EnvInvalid,
+                            subject_refs: vec![env_id.to_string()],
+                            detail: format!(
+                                "the room {env_id} failed floor validation at mount; the \
+                                 mounting agent refuses rather than work atop an invalid \
+                                 room (Law IX.3)"
+                            ),
+                            preserved_refs: vec![],
+                        },
+                    )
+                    .await?;
+            }
+            Err(err.into())
+        }
+    }
 }
