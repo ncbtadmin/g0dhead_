@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 godhead-schemas = { path = "../godhead-schemas" }
 godhead-store = { path = "../godhead-store" }
+semver.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true

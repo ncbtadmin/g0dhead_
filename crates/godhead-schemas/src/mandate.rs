@@ -97,6 +97,22 @@ pub struct MandateRecord {
 }
 
 impl MandateRecord {
+    /// A CANON mandate's freeform exhaustiveness clauses (C.4) — the coverage
+    /// surface a CorpusManifest maps against (SC-J07). Empty for a writ.
+    pub fn canon_clauses(&self) -> Vec<String> {
+        if self.kind != MandateKind::Canon {
+            return Vec::new();
+        }
+        self.demands
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|e| e.get("clause").and_then(|c| c.as_str()).map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// The typed locators this mandate's v1 trip fetches: a WRIT's are its
     /// `demands` targets, a CANON's are its `sources` (the 2026-07-09 ruling).
     /// The set is drawn ONLY from these persisted, validated fields — never

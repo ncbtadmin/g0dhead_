@@ -27,6 +27,7 @@ pub mod job;
 pub mod lease;
 pub mod log;
 pub mod mandate;
+pub mod manifest_profiles;
 pub mod matrix;
 pub mod ml;
 pub mod node;
@@ -56,6 +57,9 @@ pub use log::{LogEvent, LogSnapshot, Severity};
 pub use mandate::{
     validate_locator_shape, validate_mandate_shape, Locator, MandateDemands, MandateDraft,
     MandateKind, MandateRecord, WritTarget,
+};
+pub use manifest_profiles::{
+    validate_coverage, validate_sought, CoverageEntry, GapDuty, SoughtEntry,
 };
 pub use matrix::{
     Amendment, AmendmentKind, AuditReport, AuditReportDraft, AuditorKind, Claim, ClaimSeverity,

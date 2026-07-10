@@ -3,11 +3,16 @@
 //! property, SC-J09's re-armed fetch half, SC-J10's refuse-at-source — all
 //! against the instrumented `MockFetcher` (the no-HTTP wall stands).
 
-use godhead_collector::{run_trip, CollectorError, FetchFault, FetchedItem, MockFetcher};
-use godhead_schemas::{
-    AgentType, Budgets, JobDraft, JobRecord, JobStatus, Locator, MandateDemands, MandateDraft,
-    MandateKind, MandateRecord, QuarantineDraft, Tier, WritTarget,
+use godhead_collector::{
+    assemble_collection_manifest, assemble_corpus_manifest, run_trip, CollectorError, FetchFault,
+    FetchedItem, MockFetcher,
 };
+use godhead_schemas::{
+    AgentType, Budgets, CoverageEntry, EnvKind, JobDraft, JobRecord, JobStatus, Locator,
+    MandateDemands, MandateDraft, MandateKind, MandateRecord, QuarantineDraft, SoughtEntry, Tier,
+    WritTarget,
+};
+use godhead_scriptorium::establish;
 use godhead_store::{PgStore, Store, StoreError};
 use semver::Version;
 use serde_json::json;
@@ -32,8 +37,10 @@ async fn store() -> Option<PgStore> {
         eprintln!("SKIP: DATABASE_URL unset — database-backed criterion NOT exercised");
         return None;
     };
+    let mut reg = godhead_intake::registry();
+    godhead_collector::register_into(&mut reg);
     Some(
-        PgStore::connect(&url, godhead_intake::registry())
+        PgStore::connect(&url, reg)
             .await
             .expect("store connect + migrate"),
     )
@@ -409,4 +416,188 @@ async fn sc_j10_unnormalizable_marked_not_laundered() {
     );
     // G13: the normalizable:false raw-storage half re-arms at the onboard pipe
     // after admission (intake normalization), not in the fetch labor.
+}
+
+// ---- SC-J06 / SC-J07: the collection manifests, post-admission ----
+
+/// A plain RUNNING Student — the "fresh instance reading the room" that
+/// compiles a manifest (write_artifact / refuse need only a RUNNING job).
+async fn running_student(store: &PgStore, tier: Tier) -> JobRecord {
+    let job = store
+        .create_job(&JobDraft {
+            agent_type: AgentType::Student,
+            auditor_name: None,
+            tier: Some(tier),
+            input_refs: vec![],
+            env_ref: None,
+            brief_ref: None,
+            endpoint_alias: None,
+            manual_version: Version::new(1, 0, 0),
+            budgets: Budgets {
+                max_wall_ms: 600_000,
+                max_tool_calls: 10,
+                max_tokens: 100,
+            },
+        })
+        .await
+        .expect("student job");
+    let job = store
+        .transition_job(job.job_id, job.revision, JobStatus::Leased)
+        .await
+        .unwrap();
+    store
+        .transition_job(job.job_id, job.revision, JobStatus::Running)
+        .await
+        .unwrap()
+}
+
+async fn authored_canon(store: &PgStore, matrix: Uuid, clauses: Vec<String>) -> MandateRecord {
+    let (_job, env) = establish(store, EnvKind::Teacher, Tier::Canon, matrix)
+        .await
+        .expect("a live Teacher room");
+    store
+        .author_mandate(
+            "sovereign",
+            &MandateDraft {
+                kind: MandateKind::Canon,
+                teacher_env_ref: Some(env.env_id),
+                matrix_ref: None,
+                demands: MandateDemands::CanonClauses(clauses),
+                sources: vec![],
+                trip_budget: json!({ "max_items": 16 }),
+            },
+        )
+        .await
+        .expect("canon authored")
+}
+
+#[tokio::test]
+async fn sc_j06_collection_maps_or_flags() {
+    let Some(store) = store().await else { return };
+    let matrix = plant_cardinal_matrix(&store).await;
+    let writ = authored_writ(
+        &store,
+        matrix,
+        vec![uri("https://example.org/t0"), uri("https://example.org/t1")],
+    )
+    .await;
+    let a = Uuid::now_v7();
+    let b = Uuid::now_v7();
+
+    // Target 0 met by [a, b], target 1 unmet → flagged (not a refusal: a writ
+    // is a bounded errand).
+    let job = running_student(&store, Tier::Devout).await;
+    let unmet = assemble_collection_manifest(
+        &store,
+        job.job_id,
+        writ.mandate_id,
+        &[a, b],
+        vec![
+            SoughtEntry {
+                target_index: 0,
+                item_refs: vec![a, b],
+            },
+            SoughtEntry {
+                target_index: 1,
+                item_refs: vec![],
+            },
+        ],
+    )
+    .await
+    .expect("manifest assembles");
+    assert_eq!(unmet, vec![1], "the unmet target is flagged");
+
+    // Padding — an item mapping to no target — is refused (no padding).
+    let job2 = running_student(&store, Tier::Devout).await;
+    let orphan = Uuid::now_v7();
+    let err = assemble_collection_manifest(
+        &store,
+        job2.job_id,
+        writ.mandate_id,
+        &[a, orphan],
+        vec![
+            SoughtEntry {
+                target_index: 0,
+                item_refs: vec![a],
+            },
+            SoughtEntry {
+                target_index: 1,
+                item_refs: vec![],
+            },
+        ],
+    )
+    .await
+    .expect_err("padding rejected");
+    assert!(matches!(err, CollectorError::Manifest(_)), "got {err}");
+}
+
+#[tokio::test]
+async fn sc_j07_corpus_coverage_gap_duty() {
+    let Some(store) = store().await else { return };
+    let matrix = plant_cardinal_matrix(&store).await;
+    let canon = authored_canon(
+        &store,
+        matrix,
+        vec!["clause one".into(), "clause two".into()],
+    )
+    .await;
+
+    // Clause two unmet → the gap duty: the Student REFUSES, naming the gap;
+    // it pads nothing (SC-J07, §1.3).
+    let a = Uuid::now_v7();
+    let job = running_student(&store, Tier::Canon).await;
+    let err = assemble_corpus_manifest(
+        &store,
+        job.job_id,
+        canon.mandate_id,
+        &[a],
+        vec![
+            CoverageEntry {
+                canon_clause: "clause one".into(),
+                item_refs: vec![a],
+            },
+            CoverageEntry {
+                canon_clause: "clause two".into(),
+                item_refs: vec![],
+            },
+        ],
+    )
+    .await
+    .expect_err("the gap duty fires");
+    assert!(matches!(err, CollectorError::GapDuty(_)), "got {err}");
+    let refused = store.get_job(job.job_id).await.unwrap();
+    assert_eq!(
+        refused.status,
+        JobStatus::Refused,
+        "the Student refuses rather than pad"
+    );
+
+    // A fully covered canon writes its manifest — no refusal.
+    let a2 = Uuid::now_v7();
+    let b2 = Uuid::now_v7();
+    let job2 = running_student(&store, Tier::Canon).await;
+    assemble_corpus_manifest(
+        &store,
+        job2.job_id,
+        canon.mandate_id,
+        &[a2, b2],
+        vec![
+            CoverageEntry {
+                canon_clause: "clause one".into(),
+                item_refs: vec![a2],
+            },
+            CoverageEntry {
+                canon_clause: "clause two".into(),
+                item_refs: vec![b2],
+            },
+        ],
+    )
+    .await
+    .expect("a covered canon assembles");
+    let ok = store.get_job(job2.job_id).await.unwrap();
+    assert_ne!(
+        ok.status,
+        JobStatus::Refused,
+        "a covered canon does not refuse"
+    );
 }
