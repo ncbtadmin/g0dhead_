@@ -553,225 +553,60 @@ weight; the cost is canon churn on every empirical revision. Doc-8 discipline
 either way: citable `AC-` ids, verifiable assertions, seed tests,
 `SOVEREIGN_JUDGMENT` where the operator is the check, G13 annotations.
 
-## 15. Decision sheet (revised, pass 6)
+## 15. Decision sheet â€” Pass-7 controlling form
 
-Eight decisions — D7 added by sovereign instruction (client authority), D8 by
-pass-3 finding (representation gaps no other decision lawfully covers).
-Recommendations are this document's; decisions are the sovereign's.
+Eight decisions return to the sovereign. This sheet records choices and
+recommendations only; each mechanism has one normative proposal home. If a
+summary here conflicts with its annex, the annex governs and the conflict is a
+review finding.
 
-  **D1 — The revised phase sequence (P0 → P1-A → fork{ P1-B ∥ P2A } → join →
-  **sovereign policy/space checkpoint** → P2B → P3 → P4-A → P4-B(loop) → P5 →
-  P6 → P7; checkpoint node made explicit by pass 6 — it consumes P2A's
-  authority substrate and P1-B's evidence; §8 as amended by pass 4:
-  the fork moves after P1-A — P2A consumes the workspace manifests and walls
-  P1-A builds — and every non-`proceed` verdict now has a route: P1 `adjust`
-  re-runs P1-B under a new preregistration revision; P1 `kill` blocks P2B and
-  returns to sovereign reconciliation; P4 `adjust` and `simplify ceremony`
-  re-run P4-B before P5).**
-  Adopting D1 with D4a **requires adopting or amending D3 before P1** — see
-  D3's coupling note.
-  Recommendation: adopt as amended.          [adopt / reject / amend]
+**D1 â€” Phase sequence.** Adopt P0 â†’ P1-A â†’ fork{P1-B âˆ¥ P2A} â†’ join â†’ sovereign
+policy/space checkpoint â†’ P2B â†’ P3 â†’ P4-A â†’ P4-B(loop) â†’ P5 â†’ P6 â†’ P7, with
+the entry, exit, and non-proceed routes in Â§8 and the checkpoint mechanism in
+[SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md).
+Recommendation: adopt as amended. [adopt / reject / amend]
 
-  **D2 — Offline-before-spine vs bounded concurrency.**
-  Recommendation: bounded concurrency, as a *scheduling* freedom only —
-  separately pinned, separately reviewed, serially landed slices; the shared
-  surfaces (workspace manifests, D3 walls) land once in P1-A and are consumed
-  thereafter.                                [offline-first / bounded concurrency]
+**D2 â€” Scheduling posture.** Permit bounded concurrency only after P1-A:
+separately pinned and reviewed P1-B/P2A slices whose landings serialize through
+the gate. Recommendation: bounded concurrency. [offline-first / bounded concurrency]
 
-  **D3 — Replace the universal transport wall with capability boundaries
-  (inbound / model-egress / fetch-egress), reachability-enforced (§9);
-  detaches SC-F06's half to model-egress (completed P5); preserves the
-  fetch-deletion conditions verbatim.**
-  **Coupling (pass-3):** this is not an independent choice. P1's production
-  adapter is impossible under the universal wall — **deferring D3 forces
-  either P6-before-P1 (the existing sequence) or an in-process architecture
-  amendment to doc 04 §2.2**. The lawful combinations are: {D3 adopt/amend +
-  D1 adopt} or {D3 defer + D1 reject/amend}. The sheet offers no incoherent
-  middle.
-  Recommendation: adopt.                     [adopt / amend / defer-with-stated-consequence]
+**D3 â€” Transport capabilities.** Replace the universal dependency wall with
+the inbound, model-egress, and fetch-egress boundaries in Â§9. Deferral forces a
+different D1 sequence or a doc-04 architecture amendment before P1.
+Recommendation: adopt. [adopt / amend / defer-with-stated-consequence]
 
-  **D4 — Embedder path and embedding-space policy (§10, as amended pass 5).**
-  (a) Path: production adapter built in P1-A on doc 04 §2.2's
-  separate-process architecture; in-process inference as named contingency
-  only. (b) Policy: EmbeddingSpace identity; **PREPARING→ACTIVE|ABANDONED,
-  ACTIVE→RETIRED** with **three-generation storage** (active typed +
-  preparing typed + retired archive, atomic catalog switch); the
-  **bond/measurement split completed** (§3.1 — geometry-neutral bonds,
-  space-keyed `BondQualification` and `WeightEvidence` records, weight never
-  riding the bond row, unreleased forced bonds counting in every space);
-  **`TrialEvidenceSet` (pass-5)** — an immutable evidence manifest frozen at
-  audit-open and cited identically by both reports, the Joint Proposal, the
-  consent, and the Cardinal (space, data/config epoch, threshold snapshot,
-  qualification set, weight run identity, per-bond effective weight source,
-  membership, override-head epoch; AMEND freezes the successor set at
-  re-audit); **total activation disposition of old-space Postulants
-  (pass-5)** — auto-supersede (pristine / barrier-complete-unproposed /
-  declined-or-halted), block (granted-unexecuted, running execution, live
-  trial jobs), explicit sovereign disposition (unresolved proposals,
-  AMEND-awaiting-re-audit), with `SUPERSEDED` terminal; **activation
-  serialization (pass-5; token corrected pass-6)** — per-matrix CAS,
-  space-predicated trial writes, and a **transactional `GraphEpoch`
-  CAS-validated at the catalog switch** (the A.5-position token was unsound:
-  identity ≠ commit order, logs are autocommit-separate, `set_config` logs
-  nothing), **with emergence sharing the serialization unit** (every
-  `emerge_postulant` insert predicates on expected active space + catalog
-  revision and records the epoch it emerged against); named amendment
-  targets: Dogma VI/A.9's status grammar **plus
-  A.9's new space/evidence identity**, doc 03 §2.4, migration 0005's
-  predicate, **A.5's closed taxonomy** (D4 owns six new events:
-  `SPACE_ADOPTED`, `SPACE_ACTIVATED`, `SPACE_ABANDONED`, `SPACE_RETIRED`,
-  `MATRIX_SUPERSEDED`, `CONFIG_CHANGED` — **`OVERRIDE_RELEASED` moved to
-  D8's ownership, pass-6: adopting D4 must not ratify a D8 event**);
-  **five further named literal amendments carried by
-  adoption** (doc 03 §2.2, doc 04 §4.1, SC-M05 — per node *per valid space*;
-  doc 03 §2.3 and doc 04 §4.2 — similarity/weight move off the link record
-  into evidence); `space_ref` propagation per §10; floor named space 0;
-  Law-IV fixed stars; **Cardinals frozen under new geometry — drift is
-  advisory, replacement is decommission + fresh emergence**. **Pass-6
-  additions:** the evidence manifest binds **immutable values and algorithm
-  identities, never mutable revision pointers** (threshold and
-  link-similarity values verbatim; qualification and weight algorithm
-  versions; reasoner digest and prompt/policy version; calculation-run
-  input/output digests) — and gains a **validity state machine**:
-  current-state revalidation chosen (snapshot isolation declined), the
-  evidence epoch and expected head set CAS-revalidated at barrier
-  certification, proposal filing, consent, and Notary execution, drift →
-  SUPERSEDED/DISTRUSTED and re-audit; **trial opening is one atomic,
-  retry-stable store operation** (one evidence set per matrix revision,
-  eligibility consumed, `AUDIT_OPENED` in-transaction); the disposition
-  table gains the **incomplete-trial bucket** and routes executed consents
-  **by verdict** (COMMIT/AMEND/REJECT — not "always a Cardinal"), with the
-  explicit-disposition branch carried as **R19's exact-hashed map**;
-  generation failure is machine-marked, **abandonment is the sovereign's
-  (R20)**; P1-B evaluates through a **`CandidateEvaluationContext`**
-  (PREPARING space, staged policy snapshot, non-authoritative outputs,
-  production adapter); `proceed` is **one atomic policy+space promotion**
-  (set-then-activate declined — it invalidates certification and briefly
-  governs space 0 with the winning threshold); `adjust` re-certifies under
-  the replaced snapshot; a **final untouched holdout** survives all adjust
-  cycles; **`ConfigHistory`/`CONFIG_CHANGED` is a named amendment** (prior
-  config values are unrecoverable today — `set_config` writes no event).
-  DDL to ADR-2; the post-join sovereign checkpoint (§8/P1) exercises
-  adoption, promotion, and abandonment.
-  Recommendation: adopt both as amended.     [adopt a+b / amend]
+**D4 â€” Embedder path and space/trial policy.** Decide together: (a) the
+production separate-process adapter, with in-process inference contingency
+only; and (b) the space, candidate, promotion, epoch, trial-cycle, and evidence
+mechanisms in [SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md)
+and [TRIAL_AND_EVIDENCE.md](TRIAL_AND_EVIDENCE.md), including their D4 rows in
+[AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md). Recommendation: adopt both as
+amended. [adopt a+b / amend]
 
-  **D5 — Criteria-register authority (§14).**
-  Recommendation: dev-register with promotion path and append-ledgered
-  preregistration.                           [dev-register / canonical doc 09]
+**D5 â€” Criteria-register authority.** Keep application criteria in the
+append-ledgered, explicitly non-canonical development register described in
+Â§14, with promotion into Document 8 for any rule that becomes permanent.
+Recommendation: dev-register. [dev-register / canonical doc 09]
 
-  **D6 — P0 fixed closure checklist (§8/P0, exit as revised).**
-  Recommendation: adopt; fixed boundary; exclusions binding.
-                                             [adopt / amend]
+**D6 â€” P0 closure.** Adopt the fixed entry, contents, exclusions, and exit in
+Â§8/P0. Recommendation: adopt. [adopt / amend]
 
-  **D7 — Client-authority v1 posture (§11, as amended passes 3–5):**
-  server-authoritative; one enrolled operator client; **separately named
-  reserved operations covering IV.4's entries exactly plus the labeled
-  non-IV.4 sovereign hands — now including `resolve_bias_warning` and
-  (pass-5) pairing/re-pairing** (`form_pairing` is actor-less today and
-  hardcodes sovereign authorship; doc 06 §4.3 names re-pairing a fresh
-  sovereign act); the registry now **literal — §11.1** (stable IDs, every
-  accepted outcome, authority source, class, phase, envelope fields,
-  unshipped behavior, restart/discovery; generic `record_consent` retired);
-  an **unforgeable sovereign context** minted only by authentication
-  middleware, actor identity never derived from request data, elevation only
-  after authorization; **enforcement by capability-bearing signatures on
-  every reserved operation (pass-5 — the recommended shape):** a gating
-  module with publicly callable entrypoints is *not* equivalent (a call-site
-  test proves no current bypass, not an uncallable one) and is lawful only
-  with structural sealing of the sovereign entrypoints — priced as the P2A
-  refactor; the arch test covers every §11.1 row as a tripwire behind the
-  type-level wall; end-to-end unauthenticated-to-persistence tests;
-  **store-owned command envelopes for every registry row (pass-5)** —
-  idempotency, expected revision/state, freshness, and exact hashes validated
-  and recorded inside the sovereign store method's own transaction, never
-  application-layer only; no offline sovereign writes. **Pass-6 additions:**
-  the registry splits **live invocation from standing-trigger execution**
-  (R01a/R01b — a scheduler never forges a capability; it acts under a
-  recorded trigger revision) and **initial pairing from re-pairing**
-  (R17a/R17b — canon names only re-pairing sovereign; initial formation is
-  implementation-sovereign pending the D7 answer); gains **R21 admission-
-  notice resolution (SC-I07b), R22 silenced-scope lift (SC-K07 names the
-  lift; no surface exists), R23 persisted `SOVEREIGN_JUDGMENT` verdicts
-  (B.2's review verdict currently has no record)**; **multi-step operations
-  carry durable command receipts** (single-transaction envelopes cannot
-  cover `invoke_audit`/`rebalance_now`); **idempotency keys bind to request
-  digests**; missing async executors are owned (decommission-execution and
-  admission-processing ticks — canon's dispatcher note promises them);
-  discovery is zero-delay with the stall window as monitoring only;
-  enrollment/rotation/revocation live in ADR-3's separate
-  **authentication-control registry**; and the pass-5 "recorded direct
-  invocation" footnote is withdrawn — **checkpoint acts wait for P2A's
-  capability substrate at the join**. ADR extracted after answer.
-  Recommendation: adopt as amended.          [adopt / amend]
+**D7 â€” Client and command authority.** Decide the application boundary,
+authority classes, reserved-operation registry, authentication-control
+registry, envelope/receipt substrate, and executor discovery in
+[AUTHORITY_REGISTRIES.md](AUTHORITY_REGISTRIES.md), including its D7 rows in
+[AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md). Recommendation: adopt as amended.
+[adopt / amend]
 
-  **D8 — Override-release representation and kind-aware link protection
-  (§3.1; new pass 3, amended passes 4–5).** (a) Release: canon/schema
-  amendment making release representable — recommended shape: **per-kind
-  override lineages** (one active head per `(subject_ref, override_kind)`);
-  release as a separate `OverrideReleaseRecord` (attributed, chained,
-  **closing exactly one kind's head** by compare-and-set — the aggregate
-  held marker clears only when the last head closes) + `OVERRIDE_RELEASED`
-  taxonomy event; alternative: an ACTIVE|RELEASED status on A.7.
-  **Petition-head binding rides with (a) (pass-5 — the release-defeats-grant
-  claim was refuted against the schemas):** petitions gain
-  `target_override_ref` recorded at open against the petitioned kind's
-  head; the grant binds consent to that target and re-verifies it; the
-  executor refuses a moved lineage (`TARGET_RELEASED`/`TARGET_SUPERSEDED`);
-  laying, succession, and release all **CAS the same lineage head** — never
-  the bond row (a weight act need not touch the bond). (b) Protection is
-  override-kind-aware; guards derive from **all unreleased heads** under the
-  **pass-5 compatibility table** (§3.1): FORCED ∥ WEIGHT-CORRECTED
-  compatible; WEIGHT_CORRECTED on a severed bond refused; FORCED ↔ SEVERED
-  mutually exclusive with **atomic supersession** (one act, chained closure
-  records — the two-ceremony alternative recorded and declined); the link
-  row's `user_overridden` becomes a derived aggregate marker, **never a
-  mutation guard**. `LINK_FORCED` holds existence/category only; **weight
-  lives entirely off the protected record** (§3.1's `WeightEvidence` —
-  SC-C01 by construction); **`WEIGHT_CORRECTED` is geometry-neutral,
-  projected into every space (pass-5 choice)** — space-scoped correction
-  declined as IV.1-by-migration; drift under a new space is advisory;
-  **release mints a `RELEASED_AS_STANDS` evidence record** — the last
-  human-held value stays effective until the next lawful recalculation, and
-  immediate fallback to older machine evidence is forbidden as machine
-  restoration. `lay_weight_override` joins P2B. **Pass-6 additions:** the
-  concurrency substrate is the **`OverrideLineage` control record** — a
-  monotonic `lineage_epoch` per `(subject, kind)` advancing while active
-  *and empty* (the empty-head ABA is otherwise unguardable), composite acts
-  locking their full expected lineage set in deterministic kind order under
-  one `transition_id`; petitions become a **canonical lineage aggregate over
-  immutable `PetitionOccurrence` records** (migration 0003's single mutable
-  row overwrites `reason`/`proposed_change` and NULLs
-  `consent_ref`/`execution_job_ref`/`resolved_at` on recurrence — already
-  erasing execution witnesses today), with consents and successors citing
-  the occurrence; the occurrence separates **petition class from resulting
-  kind** (today one overloaded `change_kind`); **SILENCED binds the exact
-  head epoch silenced** (subject/kind-wide gag declined); composite consent
-  binds an immutable **`TransitionPlan`** (every expected head + epoch,
-  every closure, result, one hash, one transition id — the Notary never
-  closes a head the sovereign did not review; the same-kind-only
-  alternative declined as re-splitting the single-act model); a **four-kind
-  release table** completes CATEGORY_REASSIGNED and LINK_SEVERED semantics;
-  `RELEASED_AS_STANDS` is **geometry-neutral state on the release act and
-  lineage record, not a space-keyed evidence row** (pass-5's shape was
-  schema-incompatible); **machine `WeightEvidence` writes carry the
-  weight-lineage epoch captured at calculation start** (release advances
-  it — the pre-release calculation race refuses at write), with the literal
-  effective-selection order (active head → as-stands for current epoch →
-  same-epoch post-trigger machine evidence); sever-closure of a weight head
-  mints **no** effective as-stands (severed bonds are unread) and a later
-  re-force does **not** revive the old value; and **SC-C01 is resolved, not
-  assumed** — effective state derives from append-only lineage acts (the
-  held base record is never mutated; the materialized marker is
-  lineage-derived bookkeeping) **and** SC-C01's text is amended to admit
-  the authenticated exact-hash sovereign `TransitionPlan` as lawful
-  authority beside granted consent. `OVERRIDE_RELEASED` is **owned here, by
-  D8** — adopting D4 does not ratify it. Neither (a) nor (b) is authorized
-  by D1.
-  Recommendation: adopt (a) with occurrences, lineage epochs, and
-  TransitionPlans; adopt (b) with the compatibility table, the four-kind
-  release table, and geometry-neutral weight correction.
-                                             [adopt a+b / amend]
+**D8 â€” Override release and kind-aware protection.** Decide the complete
+lineage, occurrence, transition-plan, compatibility, release, effective-source,
+and acceptance-criteria mechanism in
+[OVERRIDE_LINEAGES.md](OVERRIDE_LINEAGES.md), including its D8 rows in
+[AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md). Recommendation: adopt as amended.
+[adopt / amend]
 
+This sheet does not declare itself answerable. Current review status and bounded
+verdicts live in [REVIEW_LEDGER.md](REVIEW_LEDGER.md).
 ## 16. ADR extraction (after decisions return)
 
 Accepted mechanisms leave this document for independently supersedable ADRs,
