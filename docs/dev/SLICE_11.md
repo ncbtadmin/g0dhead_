@@ -130,3 +130,151 @@ for the pin to resolve. Sections 1+ (pinned criteria, what-this-builds, the
 full rider list incl. the F1 keyed-intake rider, non-goals, gate) pin next, as
 their own docs commit crossing the desk before implementation — the two-commit
 lifecycle (DISCIPLINE.md §5).*
+
+---
+
+# Part II — the pinned spec (§1+), presented to the desk 2026-07-09
+
+*Pinned after the opening round (§0.1), as its own docs commit, before any
+Section-J behavior code moves — the two-commit lifecycle. The build bar stays
+down until this crosses the desk.*
+
+## 1. Pinned criteria — Section J behavior (Document 8 §J)
+
+Section J's substrate (SC-J01/J02/J09) shipped in Slice 10. This slice pins the
+*behaviors*, each proven against the `FetchEndpoint` trait and its instrumented
+mock (§0) — the no-HTTP wall stands throughout.
+
+| Criterion | Enforces | Seed test |
+|---|---|---|
+| SC-J03 | Fetch-execution binding: a `FETCH_PER_CANON`/`FETCH_PER_WRIT` trip lacking a resolving `mandate_ref` refuses; mandate kind must match tier (WRIT→Devout, CANON→Canon; cross-matches rejected) — every fetch trip is mandate-rooted by construction (§1.4; B.3; V.4 closure (a), §4) | `sc_j03_fetch_binds_mandate` |
+| SC-J04 *(met by Slice 8's lint — claimed, G13)* | An Instruction carrying any fetch step fails Executability-Lint clause (f) and is never written (v1 prohibition). Enforced since Slice 8 (`k_concordat.rs` clause-(f) fixture); this slice adds the Section-J-named test and annotates the criterion met where it already lives | `sc_j04_fetch_step_never_lints` |
+| **SC-J05 (headline property, sovereign directive)** | No writ text, however adversarially worded, produces a fetch to a locator not enumerated in its validated demands — the fetch layer resolves targets **only** from the mandate, never from free text. Proven mechanically: the instrumented mock records every locator it is asked to fetch, and the property test asserts **set-equality between the mock's record and the mandate's demands** across a fuzzed corpus of adversarial writ texts (C.4; §1.4; doc 08 §"two doors") | `sc_j05_no_text_widens_fetch` |
+| SC-J06 | CollectionManifest (C.5): every collected item maps to a writ target by `target_index`; an unmapped item fails manifest validation (no padding); an unmet target carries empty `item_refs` and is flagged | `sc_j06_collection_maps_or_flags` |
+| SC-J07 | CorpusManifest (C.3) coverage: every canon clause maps; unmet clauses trigger the gap duty — the Student refuses, flags exactly the unmet clauses, and writes nothing sourced outside the canon | `sc_j07_corpus_coverage_gap_duty` |
+| SC-J08 | Doctor deployment with `student_env_ref` not `LIVE` refuses `ENV_INVALID`; dissolving the Canon scriptorium orphans the Doctor's (builds on `EnvStatus::Orphaned`); no silent revival — a fresh Canon environment does not re-enable an orphaned Doctor without a new sovereign pairing | `sc_j08_doctor_orphan_no_revival` |
+| SC-J09 *(fetch half — re-armed, **claimed not inherited**)* | The chain-append-in-flight behavior, now exercised through a live fetch trip: a `FETCH_PER_CANON`/`FETCH_PER_WRIT` labor appends its ProvenanceChain entry **before** the item write (§4.2), and an item deposited whose producing entry is absent refuses `PROVENANCE_INCOMPLETE`. Slice 10 shipped the substrate half and said this fetch half re-arms here (G13); this slice claims it in behavior — the substrate wall is *exercised* by a real trip, not assumed | `sc_j09_chain_append_in_flight_fetch` |
+| SC-J10 | A collected item the system cannot normalize is stored raw, marked `normalizable: false`, and surfaces an incompatibility notice; fetch-layer garbage (corrupt, deceptive, unfetchable) is refused **at source**, never laundered through quarantine | `sc_j10_unnormalizable_marked_not_laundered` |
+| SC-C07 *(mandate-authoring entry — claimed, G9)* | IV.4 "authoring fetch mandates" is a human-reserved action: the authorship surface takes a human actor and no job identity; an agent-shaped invocation is rejected. Slice 10 built `author_mandate` + the SC-J01 wall; this slice claims the IV.4 one-test-per-surface entry now that mandate authoring is exercised in behavior | `sc_c07_mandate_authoring_entry` |
+
+## 2. What this slice builds
+
+- **The `FetchEndpoint` trait + instrumented deterministic mock** (the §0 seam,
+  mirroring Slice 10's `ScanEndpoint`): the mock resolves each demanded locator
+  to fixture bytes and **records, in its own ledger, every locator it was asked
+  to fetch** — that record is SC-J05's witness. An `unreachable`/garbage mode
+  serves SC-J10. No real transport; the wall stands (arch test unchanged).
+- **The fetch labor** (`FETCH_PER_CANON` / `FETCH_PER_WRIT` execution): resolves
+  targets **only** from the validated mandate's demands, drives the mock, and
+  deposits results into quarantine (Slice 10's `quarantine_deposit`) with the
+  chain appended in flight (SC-J09). Binds to a resolving `mandate_ref`, kind
+  matched to tier (SC-J03).
+- **Schemas C.3 / C.5**: `CorpusManifest` (canon clause → coverage map) and
+  `CollectionManifest` (writ `target_index` → `item_refs`), with the sought/met
+  maps SC-J06/J07 validate; the `normalizable` flag + incompatibility notice
+  (SC-J10).
+- **The Doctor** (Canon Student) deployment + orphaning (SC-J08): reuses the
+  scriptorium mount walls and `EnvStatus::Orphaned`; orphaning cascades from a
+  dissolved Canon scriptorium through the pairing; revival requires a new
+  sovereign pairing, never silent.
+- **Store methods + migrations**: fetch-execution binding, manifest
+  assembly/validation, Doctor deployment/orphaning, and the V.4 closure of §4
+  (the extended quarantine-only wall). Migrations numbered at build time.
+
+## 3. Riders (carried from birth)
+
+| Rider | Order | Seed test |
+|---|---|---|
+| **F1 keyed-intake idempotency (condition 2 — named from birth):** `commit_file` becomes idempotent — a deterministic node id derived from `item_ref` (or a caller-supplied keyed id) + `ON CONFLICT` — so the Deacon's `admit` cannot orphan a duplicate CLEAN atom on a crash between the mint and `mark_admitted`, or under two concurrent `admit` calls. The §6 "keyed writes" guarantee Slice 10 corrected becomes true. | S10 acceptance (2) | `admit_is_idempotent_under_retry` |
+| Dedicated tests for the Slice 10 legibility fixes F6/F7/F11 (pinned in SLICE_10 §9.2 — folded here so they are not lost) | S10 §9.2 | `chain_race_is_typed`, `deposit_converge_logs_standing`, `ladder_budget_skips_second_refuse` |
+| Test hygiene: complete per-test `#[serial]` coverage of the singleton-touching binaries so the multithreaded gate is clean on the first pass (extends the S4 rider; the producer's serial-rerun is the backstop, not the goal) | S10 §9.1 | gate deterministic multithreaded |
+
+R11-1..3 (the opening round's confirmed findings) already landed in `dce06c2`;
+they are riders of this slice by authority, recorded in §0.1, not re-listed here.
+The `config_constants` defense-in-depth `no_delete` (F2) remains dispositioned
+out of the raw-SQL threat model (G6), recorded not scheduled.
+
+## 4. The V.4 brief-rooted seam — resolved (both closures)
+
+The seam §0.1 recorded is closed here, adopting the desk's starting position —
+**both closures** — the cost being real but small:
+
+- **(a) Mandate-rooted by construction.** SC-J03 binds every fetch trip to a
+  resolving `mandate_ref` with kind matched to tier, so no external fetch is
+  brief-rooted. `quarantine_deposit`'s external path requires that mandate; the
+  BRIEF chain root (SC-J09 admits `CANON | WRIT | BRIEF`) is retained **only**
+  for internal-origin provenance chains (a BRIEF-rooted internal chain — the
+  JobDraft's `brief_ref` — never an external arrival), and the brief branch of
+  `quarantine_deposit` is documented and guarded as internal, not a fetch path.
+- **(b) The wall extended.** `godhead_quarantine_only` gains an OR'd clause:
+  a job that has deposited external material to quarantine
+  (`EXISTS(SELECT 1 FROM quarantine_items WHERE origin_job_ref = writer)`) is
+  barred from the internal namespace (nodes/artifacts/environment_items) whatever
+  its charter — defense-in-depth over (a), catching a depositing job that later
+  attempts a direct internal write.
+
+**The honest cost, disclosed (not an argument against):** closure (b) is one
+OR'd subquery in the trigger plus its test, and it carries a *timing*
+limitation — a job that writes an internal row **before** it deposits is not
+caught by (b) alone. That case is fully covered by (a) (such a job is not a
+lawful fetcher — fetchers are mandate-rooted and deposit before admission via a
+separate intake job), so (b) rides as belt-and-suspenders, not the load-bearing
+guard. The cost is real and small; it does not outweigh closing the seam from
+both sides, so both are adopted. Admission's own node mint is unaffected: it runs
+under a separate intake stage job that has deposited nothing, so it clears (b).
+
+## 5. Design decisions (the §0 constraints, mechanical)
+
+- **The mock is the whole outward surface.** SC-J05 is proven against the mock's
+  record, never a network; the wall's arch test (`no_outward_transport_wall`,
+  now table-form-aware and ws-covering after R11-2/R11-3) stays green — a Slice 11
+  that tried to add real transport would trip its own wall.
+- **Targets resolve from the mandate, not from text — at one seam.** The fetch
+  labor reads locators from the persisted, validated `MandateRecord` demands
+  only; no code path lets writ prose reach the fetch call. SC-J05 fuzzes the
+  prose and asserts the mock saw exactly the mandate's set.
+- **Gap duty is a refusal, not a silent partial** (SC-J07): an uncovered canon
+  clause halts the Student in the established labor-rule shape, flagging the
+  unmet clauses, writing nothing outside the canon.
+- **Tests only accumulate; any half met below its words carries its G13
+  annotation** naming the unmet half and where it re-arms (real transport →
+  Phase 5, §6).
+
+## 6. Non-goals
+
+- **No real transport, no HTTP client, no real scan/fetch provider** — the wall
+  stands; the traits and their mocks are the whole outward surface. Real
+  transport, trip-budget enforcement at the transport layer, the Law XV scan of
+  fetched bytes ahead of the quarantine write, and SC-F06's integration half are
+  **Phase 5**, in the one commit that deletes the wall (§0).
+- **No retrieval breadth / no query system** — SC-J02/J05 are the enforced wall
+  against it; the breadth system is deferred by directive.
+- **No Duty of the House** (quarantine purge/rotation — deferred, doc 00 §7).
+- **No multi-tenancy** (deferred).
+
+## 7. Budget & severability
+
+Section J is one coherent behavior (fetch → manifest → coverage → Doctor); it
+does not sever cleanly, and its criteria interlock (SC-J05 needs the fetch
+labor; SC-J06/J07 need the manifests; SC-J08 needs the Doctor). If the slice
+budget breaks in practice, the **only** severable piece is the Doctor/orphaning
+(SC-J08) — it moves whole to a follow-up, recorded here, because it stands on
+the pairing/orphaning machinery rather than on the fetch path. The F1 rider is
+**not** severable (condition 2 names it from birth). Nothing else is.
+
+## 8. Gate & delivery protocol
+
+The gate is doc 00 §4's three commands via the producer (`scripts/gate_report.py`
+— the only voice of the gate), on the host against live Railway Postgres.
+Adversarial review precedes delivery (the standing rule); the delivery ledger
+(§9) appends at delivery as its own commit (the two-commit lifecycle), carrying
+the adversarial ledger, the regenerated sweep, and the producer gate report.
+
+---
+
+*Presented to the sovereign 2026-07-09. The build bar for Section J behavior
+lifts only on sign-off — the spec crosses the desk before code, as for eleven
+slices. On sign-off: build against the `FetchEndpoint` mock (wall standing),
+carry the F1 rider from the first commit, close the V.4 seam both ways (§4),
+and bring the delivery ledger to this same desk. The no-HTTP wall is not this
+slice's to delete.*
