@@ -11,12 +11,13 @@ removes, and silently satisfies nothing. Where it touches a recorded assertion
 
 ## 1. Executive assessment
 
-Phase B's testable spec has reached full **floor-and-mock coverage** of the
-Document 8 criteria as of Slice 11's delivery (75ad38b); real-provider
-integration (scanner, serving endpoints, fetch transport) and the annotated
-halves remain, by design, beyond that coverage. What the project holds at HEAD
-(26c0090 — Slice 11 delivered, Slice 11b's spec pinned docs-only; inventory
-refreshed pass 6) is a heavily enforced, adversarially reviewed *library*:
+Phase B's testable spec has reached **all Slice-11 floor-and-mock coverage except
+SC-J08**, which was deliberately severed to the signed but undelivered Slice
+11b. Real-provider integration (scanner, serving endpoints, fetch transport)
+and annotated halves also remain beyond that coverage by design. What the
+project holds at the committed review baseline (`ffae6a8` — Slice 11 delivered;
+Slice 11b's amended specification signed docs-only) is a heavily enforced,
+adversarially reviewed *library*:
 twelve crates, eighteen migrations, 161 passing tests across 47 binaries, and
 zero binary targets except a connectivity probe. No server exists, no API, no
 client, no real embedder, no retrieval surface. Every capability is exercised
@@ -104,14 +105,15 @@ laying, node-incident links, matrix listing).
 degradation; retrieval breadth; the Duty of the House; multi-tenancy.
 
 **Known residues, NARROWER rows, annotated halves** — SC-F06 integration half
-(ownership resolved in §8/P5 — see §17 item 6); SC-I05 purge half (Duty of the
+(ownership resolved in §8/P5 — historical disposition in
+[REVIEW_LEDGER.md](REVIEW_LEDGER.md)); SC-I05 purge half (Duty of the
 House); SC-J09 fetch half (Slice 11 delivered its mock half; real-transport
 validation at P6); Slice 11's mock-proven J criteria carry the same G13 shape
 until transport is real; the criteria sweep's remaining PENDING rows
 (classification in progress, non-blocking); ~~F1 keyed-intake (named Slice 11
 rider)~~ **delivered with Slice 11 (75ad38b)**; **Slice 11b (the Doctor and
-the dissolution cascade) — spec pinned docs-only at 26c0090, undelivered; it
-precedes P0**; `coherence_threshold` unseeded (deliberate — P1 is where the
+the dissolution cascade) — pinned at 26c0090, amended at `ffae6a8`, and still
+undelivered; it precedes P0**; `coherence_threshold` unseeded (deliberate — P1 is where the
 sovereign finally sets it on evidence, at the §8/P1 checkpoint);
 known shared-DB test serialization (managed, not solved — P0 closes it).
 
@@ -494,15 +496,17 @@ P1–P4)** — explanation belongs to P2's read models and cleanup stays deferre
 but the Duty of the House gets evidence, not guesses.
 **Preregistration discipline:** every preregistration is a committed revision
 of the criteria register; any later change cites the prior revision, states
-why, and states whether results had already been observed. **Holdout
-hygiene across `adjust` cycles (pass-6 — a new preregistration revision does
-not make an observed holdout unseen):** a **final holdout is reserved
-untouched across all adjust cycles** and consulted exactly once, at the
-last pre-verdict evaluation; interim cycles evaluate on the calibration
-split and any rotating interim holdouts the preregistration names. (The
-predeclared sequential-testing alternative — alpha-spending across looks —
-is recorded as viable and declined for v1 as procedure-heavy.) The operator
-corpus stays judgment-unseen until P4, as already required.
+why, and states whether results had already been observed. **Holdout hygiene
+across `adjust` cycles:** a final confirmatory holdout is reserved untouched
+through exploratory adjustment. Opening it is a preregistered freeze point:
+policy, geometry, and evaluation code freeze, and the confirmatory result may
+produce only `proceed` or `kill`. If the result instead motivates adjustment,
+it is reclassified as exploratory; the adjusted candidate requires a newly
+collected untouched holdout and new preregistration before `proceed` is
+reachable. Interim cycles use calibration data and any preregistered rotating
+interim holdouts. The sequential-testing alternative—alpha-spending across
+looks—remains viable but is declined for v1 as procedure-heavy. The operator
+corpus stays judgment-unseen until P4.
 The offline phase may kill an approach early; it cannot validate the product
 claim.
 
