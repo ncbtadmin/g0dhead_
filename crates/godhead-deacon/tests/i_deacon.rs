@@ -1425,3 +1425,63 @@ async fn deacon_retry_converges() {
         .expect_err("admission is recorded exactly once");
     assert!(err.to_string().contains("exactly once"), "got {err}");
 }
+
+/// F1 (keyed-intake idempotency): admission converges even when a prior
+/// attempt CRASHED between the intake mint and the convergence witness. The
+/// node id is DERIVED from the item, so the retry reads the would-be orphan
+/// back instead of minting a second CLEAN atom into the corpus — the gap the
+/// old mint-fresh-then-record path left open (SLICE_10 §9.2 finding F1).
+#[tokio::test]
+async fn admit_is_idempotent_under_retry() {
+    let Some(store) = store().await else { return };
+    let matrix = plant_cardinal_matrix(&store).await;
+    let mandate = writ_mandate(&store, matrix).await;
+    let trip = trip_job(&store, mandate.mandate_id, Tier::Devout).await;
+    let deacon = Deacon::new(&store, MockScanner::new());
+    let pipe = IntakePipe::new(&store, temp_root()).expect("pipe");
+
+    let item_ref = clean_admitted_item(
+        &store,
+        &deacon,
+        &trip,
+        mandate.mandate_id,
+        "crash.txt",
+        b"body once",
+    )
+    .await;
+
+    // Simulate the crash: a prior attempt minted the node under the SAME
+    // derived id admit will use, then died before recording the admission.
+    let node_id = godhead_deacon::admission_node_id(item_ref);
+    let minted = pipe
+        .commit_file_with_id(node_id, "crash.txt", b"body once")
+        .await
+        .expect("the crashed attempt's mint");
+    assert_eq!(minted, node_id, "the id is derived, not random");
+    let mid = store.get_quarantine_item(item_ref).await.expect("item");
+    assert!(
+        mid.admitted_node_ref.is_none(),
+        "the crash left the admission unrecorded"
+    );
+
+    // Admit now: it MUST converge on the already-minted node, not mint a second.
+    let admitted = deacon
+        .admit(&pipe, item_ref)
+        .await
+        .expect("admit converges on the would-be orphan");
+    assert_eq!(admitted, node_id, "the derived id keys the admission");
+
+    // The atom was copied exactly once, despite the crash-and-retry.
+    let copies = store
+        .read_logs(&node_id.to_string())
+        .await
+        .expect("logs")
+        .iter()
+        .filter(|l| l.event == LogEvent::IntakeRawCopied)
+        .count();
+    assert_eq!(copies, 1, "one CLEAN atom, not a duplicate (F1)");
+
+    // And the admission is recorded exactly once, on that node.
+    let done = store.get_quarantine_item(item_ref).await.expect("item");
+    assert_eq!(done.admitted_node_ref, Some(node_id));
+}

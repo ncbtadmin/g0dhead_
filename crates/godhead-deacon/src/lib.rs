@@ -224,8 +224,33 @@ impl<'s, S: Store, E: ScanEndpoint> Deacon<'s, S, E> {
         if let Some(node) = item.admitted_node_ref {
             return Ok(node); // already through the gate; converged (Law I.3)
         }
-        let node_id = pipe.commit_file(&item.filename, &item.content).await?;
+        // F1: the admission's node id is DERIVED from the item, never minted
+        // fresh, so a crash in the window between the intake mint and the
+        // convergence witness (`mark_admitted`) — or a concurrent second
+        // admit — lands on the SAME node instead of orphaning a duplicate
+        // CLEAN atom. A prior attempt that minted the node but did not record
+        // the admission is read back here, never copied twice; the node's
+        // one-active-lease-per-subject rule serializes any true concurrency.
+        let node_id = admission_node_id(item_ref);
+        match self.store.get_node(node_id).await {
+            Ok(_) => {} // a prior attempt already minted it; converge on it
+            Err(StoreError::NotFound(_)) => {
+                pipe.commit_file_with_id(node_id, &item.filename, &item.content)
+                    .await?;
+            }
+            Err(e) => return Err(e.into()),
+        }
         self.store.mark_admitted(item_ref, node_id).await?;
         Ok(node_id)
     }
+}
+
+/// The deterministic node id an item's admission mints under (F1). Same
+/// `item_ref` → same node, so admission is idempotent under retry and under
+/// concurrency: the convergence witness is set once and the atom is copied
+/// once. The fixed namespace keeps the derivation stable across restarts and
+/// distinct from any other name-based id.
+pub fn admission_node_id(item_ref: Uuid) -> Uuid {
+    const ADMISSION_NS: Uuid = Uuid::from_u128(0xdeac_0117_0000_0000_0000_0000_0000_0001);
+    Uuid::new_v5(&ADMISSION_NS, item_ref.as_bytes())
 }

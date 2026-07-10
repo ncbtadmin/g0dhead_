@@ -146,7 +146,21 @@ impl<'s, S: Store> IntakePipe<'s, S> {
     /// The human commit (doc 2 §2.1–2.2): raw copied into persistence
     /// exactly once, first log in the same act, RAW_COPY flagged.
     pub async fn commit_file(&self, filename: &str, bytes: &[u8]) -> Result<Uuid, IntakeError> {
-        let node_id = Uuid::now_v7();
+        self.commit_file_with_id(Uuid::now_v7(), filename, bytes)
+            .await
+    }
+
+    /// As `commit_file`, but the caller chooses the node id — so a keyed
+    /// intake (an admission) can derive a STABLE id from its subject and
+    /// converge on retry instead of minting a duplicate atom (F1;
+    /// `Deacon::admit`). The one-active-lease-per-subject rule serializes two
+    /// concurrent runs on the same id, and the node write is keyed on it.
+    pub async fn commit_file_with_id(
+        &self,
+        node_id: Uuid,
+        filename: &str,
+        bytes: &[u8],
+    ) -> Result<Uuid, IntakeError> {
         let job = self.spawn_running(node_id).await?;
         let lease = self
             .store
