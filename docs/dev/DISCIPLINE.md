@@ -50,3 +50,25 @@ file, never the number.
 While untracked material sits deliberately in the working tree (the origin
 conversation; see `docs/_history/PROVENANCE.md`), commits add files **by name** —
 never `git add -A`, never `git add .`.
+
+## 5. The two-commit slice lifecycle (standing from Slice 11)
+
+A slice's specification and its delivery are **two commits, not one**, so the
+spec is a durable, timestamped witness that predates the code it governs.
+
+- **The spec commits at pin-time — before any code moves against it.** When a
+  slice's criteria pin (§1 onward), that pinned spec is its own docs-only commit
+  and crosses the desk *then*, ahead of implementation. Where the sovereign
+  rules a boundary or crossing ahead of the criteria (a §0), that ruling may be
+  recorded earlier still, as its own act — as `SLICE_11.md` §0 was.
+- **The delivery ledger appends at delivery.** The §9 delivery ledger — gate
+  report, adversarial ledger, archaeology, regenerated sweep — is written and
+  committed with the delivered code, crossing the same desk the spec crossed.
+
+The rule makes the sequence auditable from the tree alone: a spec commit whose
+timestamp precedes its slice's first code commit *is* the witness that the spec
+crossed the desk before the code moved — the discipline every slice already
+practiced, now provable without a transcript. Slices 1–10 recorded spec and
+delivery in one commit; from Slice 11 the two are distinct, and the producer
+(`scripts/gate_report.py`) remains the only voice of the gate in the delivery
+half.
