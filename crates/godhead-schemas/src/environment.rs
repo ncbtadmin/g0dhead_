@@ -73,6 +73,21 @@ pub struct PairingRecord {
     pub envelope: Envelope,
 }
 
+/// Slice 11b — a Doctor deployment reference (SLICE_11B §0.4). The Doctor
+/// (a Canon Teacher) is bound to a Canon Student by two instruments: this
+/// append-only reference — which the substrate's orphan cascade walks when
+/// the Student's room leaves LIVE — and a CANONICAL_INSTRUCTION `pairing`
+/// (IX.5, the only bridge to the corpus manifest). Frozen at deployment.
+#[derive(Debug, Clone)]
+pub struct DoctorDeployment {
+    pub deployment_id: Uuid,
+    pub doctor_env_ref: Uuid,
+    pub student_env_ref: Uuid,
+    pub pairing_id: Uuid,
+    pub deployed_at: OffsetDateTime,
+    pub envelope: Envelope,
+}
+
 /// X.4 — the deterministic roster index: reproducible from the record
 /// alone. A stable FNV-1a over the env_id's bytes, mod the roster length.
 /// The determinism of conferral must not hinge on a hasher's internals.

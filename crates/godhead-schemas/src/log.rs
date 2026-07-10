@@ -44,6 +44,8 @@ closed_enum! {
         Quarantined => "QUARANTINED",
         ScanRecorded => "SCAN_RECORDED",
         ManifestPresented => "MANIFEST_PRESENTED",
+        EnvDissolved => "ENV_DISSOLVED",
+        DoctorDeployed => "DOCTOR_DEPLOYED",
     }
 }
 

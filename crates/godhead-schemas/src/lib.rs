@@ -42,8 +42,8 @@ pub use clauses::{halt_code, stage_code};
 pub use config::{ConfigConstant, ConfigTier};
 pub use envelope::Envelope;
 pub use environment::{
-    roman_ordinal, roster_index, EnvItem, EnvKind, EnvStatus, EnvironmentRecord, PairingKind,
-    PairingRecord,
+    roman_ordinal, roster_index, DoctorDeployment, EnvItem, EnvKind, EnvStatus, EnvironmentRecord,
+    PairingKind, PairingRecord,
 };
 pub use error::SchemaError;
 pub use flag::{Certifies, FlagDraft, FlagStatus, ReadinessFlag, Validator};

@@ -6,16 +6,16 @@ use godhead_schemas::{
     roman_ordinal, roster_index, validate_mandate_shape, AgentType, AmendmentKind, AuditReport,
     AuditReportDraft, AuditorKind, AuditorName, Budgets, ChainEntry, ChainEntryDraft,
     ChainEntryKind, Claim, ConcordatArtifact, ConfigConstant, ConfigTier, ConsentDecision,
-    ConsentRecord, ConsentScope, EmbeddingRecord, EnvItem, EnvKind, EnvStatus, Envelope,
-    EnvironmentRecord, FlagDraft, FlagStatus, InstructionDraft, InstructionRecord, IntakeStatus,
-    JobDraft, JobRecord, JobStatus, JointProposal, Law, LeaseRecord, LinkRecord, LiveWeights,
-    Locator, LogEvent, LogSnapshot, MandateDemands, MandateDraft, MandateKind, MandateRecord,
-    Manifest, MatrixRecord, MatrixStatus, NodeDraft, NodeRecord, NormalizeOutcome, OverrideBasis,
-    OverrideKind, OverrideRecord, PairingKind, PairingRecord, PetitionDraft, PetitionRecord,
-    PetitionStatus, ProposalDraft, QuarantineDraft, QuarantineItem, ReadinessFlag, RebalanceState,
-    RefinedArtifact, RefusalDraft, RefusalReason, RefusalRecord, ReportKind, ReturnDraft,
-    ReturnManifest, ScanEngine, ScanVerdict, ScanVerdictKind, SchemaRegistry, Severity, SourceDraw,
-    Tier, Verdict, WritTarget, RECORD_SCHEMA_VERSION,
+    ConsentRecord, ConsentScope, DoctorDeployment, EmbeddingRecord, EnvItem, EnvKind, EnvStatus,
+    Envelope, EnvironmentRecord, FlagDraft, FlagStatus, InstructionDraft, InstructionRecord,
+    IntakeStatus, JobDraft, JobRecord, JobStatus, JointProposal, Law, LeaseRecord, LinkRecord,
+    LiveWeights, Locator, LogEvent, LogSnapshot, MandateDemands, MandateDraft, MandateKind,
+    MandateRecord, Manifest, MatrixRecord, MatrixStatus, NodeDraft, NodeRecord, NormalizeOutcome,
+    OverrideBasis, OverrideKind, OverrideRecord, PairingKind, PairingRecord, PetitionDraft,
+    PetitionRecord, PetitionStatus, ProposalDraft, QuarantineDraft, QuarantineItem, ReadinessFlag,
+    RebalanceState, RefinedArtifact, RefusalDraft, RefusalReason, RefusalRecord, ReportKind,
+    ReturnDraft, ReturnManifest, ScanEngine, ScanVerdict, ScanVerdictKind, SchemaRegistry,
+    Severity, SourceDraw, Tier, Verdict, WritTarget, RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
 use sha2::{Digest, Sha256};
@@ -446,6 +446,17 @@ impl PgStore {
             item_ref: row.try_get("item_ref")?,
             provenance: row.try_get("provenance")?,
             flagged: row.try_get("flagged")?,
+            envelope: Self::envelope_from_row(row)?,
+        })
+    }
+
+    fn doctor_deployment_from_row(row: &PgRow) -> Result<DoctorDeployment, StoreError> {
+        Ok(DoctorDeployment {
+            deployment_id: row.try_get("deployment_id")?,
+            doctor_env_ref: row.try_get("doctor_env_ref")?,
+            student_env_ref: row.try_get("student_env_ref")?,
+            pairing_id: row.try_get("pairing_id")?,
+            deployed_at: row.try_get("deployed_at")?,
             envelope: Self::envelope_from_row(row)?,
         })
     }
@@ -3782,6 +3793,31 @@ impl Store for PgStore {
         .bind(notary_job_id)
         .execute(&mut *tx)
         .await?;
+        // SLICE_11B §0.3 / §0.6 — the deferred SLICE_07 cascade, closed here:
+        // a decommissioned matrix's LIVE environments go ORPHANED (never
+        // DISSOLVED — that lever is human retirement alone; doc 06:83). Each
+        // room orphans in its OWN statement, not one set-based UPDATE: the
+        // substrate's orphan-dependent-doctors AFTER trigger cascades from a
+        // Canon Student leaving LIVE to its Doctor (a room on this same
+        // matrix, so also in the sweep), and Postgres forbids a set UPDATE
+        // from re-touching a row a trigger already modified in that command.
+        // Per-row statements sidestep it; an already-orphaned room's guarded
+        // UPDATE simply matches nothing.
+        let live_envs: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT env_id FROM environments WHERE matrix_ref = $1 AND status = 'LIVE'",
+        )
+        .bind(matrix_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for env_id in live_envs {
+            sqlx::query(
+                r#"UPDATE environments SET status = 'ORPHANED', revision = revision + 1
+                   WHERE env_id = $1 AND status = 'LIVE'"#,
+            )
+            .bind(env_id)
+            .execute(&mut *tx)
+            .await?;
+        }
         tx.commit().await?;
         self.get_matrix(matrix_id).await
     }
@@ -4233,6 +4269,108 @@ impl Store for PgStore {
             &serde_json::json!({ "prior_status": "LIVE" }),
             Severity::Warning,
             "store",
+        )
+        .await?;
+        Ok(record)
+    }
+
+    async fn deploy_doctor(
+        &self,
+        job_id: Uuid,
+        student_env_ref: Uuid,
+    ) -> Result<DoctorDeployment, StoreError> {
+        // The student must be a LIVE Canon Student before any room is minted
+        // (§0.4) — ENV_INVALID otherwise, refused ahead of the establish.
+        let student = self.get_environment(student_env_ref).await?;
+        if student.kind != EnvKind::Student
+            || student.tier != Tier::Canon
+            || student.status != EnvStatus::Live
+        {
+            return Err(StoreError::EnvInvalid(format!(
+                "a Doctor deploys over a LIVE Canon Student; {student_env_ref} is a {} {} {} (SLICE_11B §0.4)",
+                student.status, student.tier, student.kind
+            )));
+        }
+        // The Doctor is a Canon Teacher on the STUDENT'S matrix — the shared
+        // node the CANONICAL_INSTRUCTION pairing binds (X.5, IX.5), and the
+        // node whose decommission orphans both rooms at once.
+        let doctor = self
+            .establish_environment(job_id, EnvKind::Teacher, student.matrix_ref, Tier::Canon)
+            .await?;
+        // The second instrument first: the pairing (both rooms LIVE by
+        // construction), then the reference row carrying both linkages.
+        let pairing = self
+            .form_pairing(
+                doctor.env_id,
+                student_env_ref,
+                student.matrix_ref,
+                PairingKind::CanonicalInstruction,
+            )
+            .await?;
+        let deployment_id = Uuid::now_v7();
+        let dep_row = sqlx::query(
+            r#"INSERT INTO doctor_deployments
+                 (deployment_id, doctor_env_ref, student_env_ref, pairing_id,
+                  schema_name, schema_version, produced_by)
+               VALUES ($1, $2, $3, $4, 'DoctorDeployment', $5, $6::text)
+               RETURNING *"#,
+        )
+        .bind(deployment_id)
+        .bind(doctor.env_id)
+        .bind(student_env_ref)
+        .bind(pairing.pairing_id)
+        .bind(RECORD_SCHEMA_VERSION)
+        .bind(job_id)
+        .fetch_one(&self.pool)
+        .await?;
+        self.append_log(
+            &deployment_id.to_string(),
+            LogEvent::DoctorDeployed,
+            &serde_json::json!({
+                "doctor_env": doctor.env_id.to_string(),
+                "student_env": student_env_ref.to_string(),
+                "pairing": pairing.pairing_id.to_string(),
+            }),
+            Severity::Info,
+            &job_id.to_string(),
+        )
+        .await?;
+        Self::doctor_deployment_from_row(&dep_row)
+    }
+
+    async fn retire_environment(
+        &self,
+        actor: &str,
+        env_id: Uuid,
+    ) -> Result<EnvironmentRecord, StoreError> {
+        let env = self.get_environment(env_id).await?;
+        if env.status == EnvStatus::Dissolved {
+            return Ok(env); // idempotent — a struck room is already gone (A.8)
+        }
+        // LIVE or ORPHANED → DISSOLVED. `retired_by` names the human hand; the
+        // substrate (env_status_arc) refuses a job-uuid actor as a gate bypass
+        // (IV.4) and forbids any later revival (§0.5). A Canon Student's
+        // retirement cascades to its Doctors through the substrate trigger.
+        let row = sqlx::query(
+            r#"UPDATE environments
+                 SET status = 'DISSOLVED', retired_by = $2, revision = revision + 1
+               WHERE env_id = $1 AND status <> 'DISSOLVED'
+               RETURNING *"#,
+        )
+        .bind(env_id)
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await?;
+        let record = match row {
+            Some(row) => Self::environment_from_row(&row)?,
+            None => return self.get_environment(env_id).await, // raced to dissolved
+        };
+        self.append_log(
+            &env_id.to_string(),
+            LogEvent::EnvDissolved,
+            &serde_json::json!({ "prior_status": env.status.as_str(), "retired_by": actor }),
+            Severity::Warning,
+            actor,
         )
         .await?;
         Ok(record)

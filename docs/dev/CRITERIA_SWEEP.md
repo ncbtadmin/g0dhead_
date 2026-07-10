@@ -73,13 +73,13 @@ ledger + PROMPT_G_RULINGS; PENDING rows are the parallel, non-blocking sweep (S1
 | **SC-I07a** | plain | `collect_rs` crates/godhead-deacon/tests/i_deacon.rs:977 | MINTED | G10 (2026-07-09); rides with Slice 10 — actor-class substrate authentication |
 | **SC-I07b** | universal | `?` crates/godhead-deacon/tests/i_deacon.rs:2<br>`sc_i07a_actor_class_wall` crates/godhead-deacon/tests/i_deacon.rs:1125 | MINTED | G11 (2026-07-09); rides with Slice 10 — admission legibility constants + standing notice |
 | **SC-J01** | universal | `?` crates/godhead-deacon/tests/j_floor.rs:4<br>`writ` crates/godhead-deacon/tests/j_floor.rs:185<br>`mandates_for` crates/godhead-deacon/tests/j_floor.rs:268<br>`sc_j01_mandates_human_authored` crates/godhead-deacon/tests/j_floor.rs:281 | PENDING |  |
-| **SC-J02** | universal | `plant_cardinal_matrix` crates/godhead-deacon/tests/i_deacon.rs:147<br>`?` crates/godhead-deacon/tests/j_floor.rs:4<br>`sc_c07_mandate_authoring_entry` crates/godhead-deacon/tests/j_floor.rs:382<br>`sc_j02_writ_concreteness` crates/godhead-deacon/tests/j_floor.rs:390 | PENDING |  |
+| **SC-J02** | universal | `sc_j05_canon_sources_fetch` crates/godhead-collector/tests/j_collector.rs:654<br>`sc_j02_canon_sources_concreteness` crates/godhead-collector/tests/j_collector.rs:658<br>`plant_cardinal_matrix` crates/godhead-deacon/tests/i_deacon.rs:147<br>`?` crates/godhead-deacon/tests/j_floor.rs:4<br>(+2 more) | PENDING |  |
 | **SC-J03** | plain | `?` crates/godhead-collector/tests/j_collector.rs:2<br>`locator_values` crates/godhead-collector/tests/j_collector.rs:193<br>`sc_j03_fetch_binds_mandate` crates/godhead-collector/tests/j_collector.rs:196 | PENDING |  |
 | **SC-J04** | universal | `assert_clause` crates/godhead-concordat/tests/k_concordat.rs:318<br>`sc_j04_fetch_step_never_lints` crates/godhead-concordat/tests/k_concordat.rs:325 | PENDING |  |
-| **SC-J05** | universal+arch | `?` crates/godhead-collector/tests/j_collector.rs:2<br>`sc_j03_fetch_binds_mandate` crates/godhead-collector/tests/j_collector.rs:252<br>`sc_j05_no_text_widens_fetch` crates/godhead-collector/tests/j_collector.rs:255 | PENDING |  |
-| **SC-J06** | universal | `sc_j10_unnormalizable_marked_not_laundered` crates/godhead-collector/tests/j_collector.rs:421<br>`sc_j06_collection_maps_or_flags` crates/godhead-collector/tests/j_collector.rs:475 | PENDING |  |
-| **SC-J07** | universal | `sc_j10_unnormalizable_marked_not_laundered` crates/godhead-collector/tests/j_collector.rs:421<br>`sc_j07_corpus_coverage_gap_duty` crates/godhead-collector/tests/j_collector.rs:535 | PENDING |  |
-| **SC-J08** | universal | — | DEFERRED | section unbuilt; the one place the bookkeeping is clean (A8) |
+| **SC-J05** | universal+arch | `?` crates/godhead-collector/tests/j_collector.rs:2<br>`sc_j03_fetch_binds_mandate` crates/godhead-collector/tests/j_collector.rs:252<br>`sc_j05_no_text_widens_fetch` crates/godhead-collector/tests/j_collector.rs:255<br>`sc_j07_corpus_coverage_gap_duty` crates/godhead-collector/tests/j_collector.rs:613<br>(+1 more) | PENDING |  |
+| **SC-J06** | universal | `sc_j10_unnormalizable_marked_not_laundered` crates/godhead-collector/tests/j_collector.rs:421<br>`sc_j06_collection_maps_or_flags` crates/godhead-collector/tests/j_collector.rs:480 | PENDING |  |
+| **SC-J07** | universal | `sc_j10_unnormalizable_marked_not_laundered` crates/godhead-collector/tests/j_collector.rs:421<br>`sc_j07_corpus_coverage_gap_duty` crates/godhead-collector/tests/j_collector.rs:540 | PENDING |  |
+| **SC-J08** | universal | `?` crates/godhead-store/tests/j_doctor.rs:2<br>`env_status` crates/godhead-store/tests/j_doctor.rs:115<br>`sc_j08_deploy_requires_live` crates/godhead-store/tests/j_doctor.rs:121<br>`sc_j08_leaving_live_orphans_doctor` crates/godhead-store/tests/j_doctor.rs:194<br>(+2 more) | PENDING |  |
 | **SC-J09** | plain | `?` crates/godhead-collector/tests/j_collector.rs:3<br>`sc_j05_no_text_widens_fetch` crates/godhead-collector/tests/j_collector.rs:305<br>`sc_j09_chain_append_in_flight_fetch` crates/godhead-collector/tests/j_collector.rs:308<br>`deposit` crates/godhead-deacon/tests/i_deacon.rs:247<br>(+4 more) | PENDING |  |
 | **SC-J10** | plain | `?` crates/godhead-collector/tests/j_collector.rs:3<br>`sc_j09_chain_append_in_flight_fetch` crates/godhead-collector/tests/j_collector.rs:364<br>`sc_j10_unnormalizable_marked_not_laundered` crates/godhead-collector/tests/j_collector.rs:367 | PENDING |  |
 | **SC-K01** | plain | `?` crates/godhead-concordat/tests/k_concordat.rs:1<br>`conforming` crates/godhead-concordat/tests/k_concordat.rs:250<br>`sc_k01_lint_clauses` crates/godhead-concordat/tests/k_concordat.rs:253 | PENDING |  |
@@ -108,12 +108,11 @@ ledger + PROMPT_G_RULINGS; PENDING rows are the parallel, non-blocking sweep (S1
 
 ## Tally
 
-- DEFERRED: 1
 - HALF+ANNOTATED: 1
 - MEETS+CLAIMS-SEAM: 1
 - MEETS-AS-RULED: 1
 - MEETS-AS-SPLIT: 1
 - MINTED: 5
 - NARROWER: 8
-- PENDING: 81
+- PENDING: 82
 - TOTAL: 99

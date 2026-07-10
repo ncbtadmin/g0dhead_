@@ -2,7 +2,7 @@ use crate::error::StoreError;
 use crate::types::{ArtifactDraft, ArtifactRecord, ComplianceMetrics};
 use godhead_schemas::{
     AuditReport, AuditReportDraft, ChainEntry, ChainEntryDraft, ConcordatArtifact, ConfigConstant,
-    ConfigTier, ConsentDecision, ConsentScope, EmbeddingRecord, EnvItem, EnvKind,
+    ConfigTier, ConsentDecision, ConsentScope, DoctorDeployment, EmbeddingRecord, EnvItem, EnvKind,
     EnvironmentRecord, FlagDraft, FlagStatus, InstructionDraft, InstructionRecord, JobDraft,
     JobRecord, JobStatus, JointProposal, LeaseRecord, LinkRecord, LiveWeights, LogEvent,
     LogSnapshot, MandateDraft, MandateRecord, Manifest, MatrixRecord, NodeDraft, NodeRecord,
@@ -553,6 +553,29 @@ pub trait Store {
     /// LIVE → ORPHANED: the dependency is lost; the room becomes a
     /// read-only archive (A.8).
     async fn orphan_environment(&self, env_id: Uuid) -> Result<EnvironmentRecord, StoreError>;
+
+    /// SC-J08 — deploys a Doctor over a Canon Student (SLICE_11B §0.4).
+    /// Validates the student is a LIVE Canon Student (ENV_INVALID otherwise),
+    /// establishes the Canon Teacher on the student's matrix, records the
+    /// append-only deployment reference (the orphan cascade walks it), and
+    /// forms the CANONICAL_INSTRUCTION pairing (IX.5, the corpus bridge).
+    /// The establishing job is the Teacher's establisher.
+    async fn deploy_doctor(
+        &self,
+        job_id: Uuid,
+        student_env_ref: Uuid,
+    ) -> Result<DoctorDeployment, StoreError>;
+
+    /// SC-J08 — retire_environment: the one lever to DISSOLVED (SLICE_11B §0.2,
+    /// A.8). A human-reserved act (IV.4): `actor` is a human hand, never a job
+    /// identity — a uuid-shaped actor is a gate bypass, refused at the
+    /// substrate. Idempotent; a Canon Student's retirement orphans its Doctors
+    /// through the substrate cascade (SC-J08 leg b).
+    async fn retire_environment(
+        &self,
+        actor: &str,
+        env_id: Uuid,
+    ) -> Result<EnvironmentRecord, StoreError>;
 
     // -- the Concordat & Instructions (Holy Standard §1, §3) --
 

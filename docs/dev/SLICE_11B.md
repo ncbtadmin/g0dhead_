@@ -221,3 +221,80 @@ semantics ruled, the pin is **signed and the build bar lifts** — the build
 against §0 follows: `deploy_doctor`, the store cascade, `retire_environment`, the
 two substrate triggers, the `doctor_deployments` table, adversarial review before
 delivery, and the ledger — closing SLICE_07's cascade debt — back to this desk.*
+
+## 9. Delivery ledger (appended at delivery — the two-commit lifecycle)
+
+*The spec crossed the desk before code (pinned `26c0090`, amended to the ruled
+semantics `ffae6a8`); this ledger appends at delivery, DISCIPLINE.md §5.*
+
+### 9.1 What was built, against §2
+
+- **Migration `0019_doctor.sql`** — the `doctor_deployments` table (records
+  **both** instruments: `doctor_env_ref → student_env_ref` and the
+  `pairing_id`; append-only, frozen, no-delete); the **Doctor-orphan** AFTER
+  trigger (`godhead_orphan_dependent_doctors`, keyed on a room's departure from
+  LIVE — one wall, both levers, §0.3); the **status-arc** BEFORE trigger
+  (`godhead_env_status_arc`: no `ORPHANED→LIVE`, no exit from `DISSOLVED`, and
+  the human-only retire guard — a uuid `retired_by` is `GATE_BYPASS_ATTEMPT`,
+  IV.4); and the A.5 taxonomy extension (`ENV_DISSOLVED`, `DOCTOR_DEPLOYED`).
+- **Store** — `deploy_doctor` (LIVE-Canon-Student validation → `ENV_INVALID`;
+  Canon Teacher established on the Student's matrix; the pairing formed; the
+  reference recorded); `retire_environment` (the one human lever to
+  `DISSOLVED`); and `execute_decommission` **extended** with the per-row
+  ORPHANED cascade over the matrix's rooms.
+- **Schemas** — `DoctorDeployment`; the two log events.
+- **Doc 05 IV.4** — `retire_environment` added to the closed list of
+  human-reserved acts (Round 8, author-sanctioned).
+
+### 9.2 The SLICE_07 cascade debt — discharged
+
+SLICE_07 §Non-goals deferred "the ORPHANED cascade rules … a Doctor orphaning
+when its Canon Student dissolves … the cascade is not [built]," and doc 06:83's
+"if its matrix is decommissioned, the environment goes ORPHANED" was specified
+but never wired. **Both are now built and proven.** `execute_decommission`
+orphans every room on the decommissioned matrix (one atomic act and record); the
+substrate trigger carries the Doctor from its Student's departure. The
+decommission leg of `sc_j08_leaving_live_orphans_doctor` drives
+`execute_decommission` end-to-end and asserts both the Student room and the
+Doctor go ORPHANED. The debt is discharged on the record.
+
+### 9.3 Adversarial review before delivery (the standing rule)
+
+A four-lens finder panel (cascade, walls, deploy, conformance) piped into
+three-lens refuters (code-trace / reachability / reproduction; majority-CONFIRM
+to survive) — 19 agents. **5 findings raised, 0 survived** the refuter vote. But
+the review is not read by the vote alone:
+
+- **Adopted despite 0/3 — a real coverage gap the refuters' framing missed.**
+  Three independent finders (cascade, walls, conformance) flagged that
+  `sc_j08_no_silent_revival` proved only leg (c)'s status-monotonicity half, not
+  the "a fresh Student mints a new Doctor; the old stays orphaned" half that
+  §0.5(2) **explicitly pins as behavior** ("the criterion tests it as
+  behavior"). The refuter angles were code-defect-oriented and refuted it as
+  "no code defect" — true, but beside the point for a spec-mandated test. The
+  test was extended to prove the fresh-deploy half (new env, new reference, new
+  pairing; the old Doctor untouched, still ORPHANED). This is the
+  not-silently-blessed rule turned on our own tooling.
+- **Two residuals, disclosed not papered over.** (1) `deploy_doctor` is not
+  transactional: a mid-deploy failure between `establish` and the pairing/row
+  could strand a LIVE Doctor the cascade cannot reach. Its preconditions are
+  guaranteed by construction (both rooms LIVE, shared matrix, both Canon; valid
+  FKs), so the only trigger is a transient DB error, and a stranded Doctor is
+  itself retirable; atomicity would thread a tx through two trait methods —
+  disproportionate, and consistent with the store's existing non-transactional
+  multi-step methods. Left as residual. (2) `retire_environment` accepts any
+  non-uuid `retired_by` (including office/blank strings) as the human witness —
+  which is the **ruled** SC-A08 actor model (non-uuid actors accepted by shape,
+  no roster to resolve them against yet); the IV.4 wall is the job-uuid
+  rejection, which holds. No change.
+
+### 9.4 Gate & sweep
+
+- Producer gate (`scripts/gate_report.py`, live Railway Postgres): **PASS (3
+  steps)** — fmt clean, clippy clean (0 warnings, workspace denies warnings),
+  **165 passed / 0 failed / 0 ignored across 48 binaries** (GATE_REPORT.txt).
+  Up from Slice 11's 161/47: the `j_doctor` binary and its four SC-J08 legs.
+- Criteria sweep regenerated (`docs/dev/criteria_sweep.py`): **SC-J08 moves
+  DEFERRED → PENDING**, now cited by the four `sc_j08_*` legs.
+
+*Delivered 2026-07-10.*
