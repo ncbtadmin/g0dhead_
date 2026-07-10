@@ -6,7 +6,7 @@
 - **Owning decisions:** D1â€“D8, historically; this file does not decide them.
 - **Phase owner:** None. This is review history, not implementation scope.
 - **Criteria hooks:** The exact criteria cited by each preserved ledger entry.
-- **Amendment rows sourced:** Historical copies only. The current proposal matrix lives in [AMENDMENT_MATRIX.md](roadmap_reconciliation/AMENDMENT_MATRIX.md).
+- **Amendment rows sourced:** Historical copies only. The current proposal matrix lives in [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md).
 
 The text from the former Â§Â§17â€“21 follows verbatim. Historical mechanisms and
 HEAD claims remain evidence of what each pass said, not current normative

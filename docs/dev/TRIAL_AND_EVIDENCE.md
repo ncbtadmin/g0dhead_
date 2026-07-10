@@ -6,7 +6,7 @@
 - **Owning decisions:** D4; D7 where sovereign disposition and command authority intersect.
 - **Phase owner:** P2B, consuming the space substrate from P1-A and the authority substrate from P2A.
 - **Criteria hooks:** SC-D01â€“SC-D10, VI.3â€“VI.4, and the activation/trial AC- criteria proposed here.
-- **Amendment rows sourced:** D4 trial/evidence and matrix-status rows in [AMENDMENT_MATRIX.md](roadmap_reconciliation/AMENDMENT_MATRIX.md).
+- **Amendment rows sourced:** D4 trial/evidence and matrix-status rows in [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md).
 
 This is the sole normative proposal home for trial identity, evidence validity,
 and activation-time trial disposition.

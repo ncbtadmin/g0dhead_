@@ -6,7 +6,7 @@
 - **Owning decisions:** D8; D4 only where measurement records and embedding spaces intersect.
 - **Phase owner:** P2B.
 - **Criteria hooks:** SC-C01â€“SC-C06, SC-D10, and the proposed AC- criteria listed below.
-- **Amendment rows sourced:** D8 rows in [AMENDMENT_MATRIX.md](roadmap_reconciliation/AMENDMENT_MATRIX.md), plus D4 measurement-split rows explicitly cross-linked there.
+- **Amendment rows sourced:** D8 rows in [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md), plus D4 measurement-split rows explicitly cross-linked there.
 
 This is the sole normative proposal home for override and release mechanics.
 The controlling roadmap and decision sheet link here and do not restate them.

@@ -6,7 +6,7 @@
 - **Owning decisions:** D4; D1 for checkpoint placement; D7 for checkpoint authority.
 - **Phase owner:** P1-A/P1-B for candidate construction and measurement; the post-join checkpoint for promotion.
 - **Criteria hooks:** SC-M01â€“SC-M06, D4's proposed activation criteria, and the P1 preregistered evaluation bands.
-- **Amendment rows sourced:** D4 space, vector, measurement, epoch, config-history, and taxonomy rows in [AMENDMENT_MATRIX.md](roadmap_reconciliation/AMENDMENT_MATRIX.md).
+- **Amendment rows sourced:** D4 space, vector, measurement, epoch, config-history, and taxonomy rows in [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md).
 
 This is the sole normative proposal home for candidate-space evaluation,
 certification, activation, and promotion mechanics.
