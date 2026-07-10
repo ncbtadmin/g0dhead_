@@ -69,6 +69,13 @@ pub struct MandateDraft {
     /// Required iff WRIT: the matrix the errand feeds.
     pub matrix_ref: Option<Uuid>,
     pub demands: MandateDemands,
+    /// v1 canon-fetch (2026-07-09 ruling; C.4 `sources`): a CANON names
+    /// concrete, typed sources under the *identical* SC-J02 validation — its
+    /// freeform `demands` clauses stay the coverage surface. A WRIT names its
+    /// targets in `demands` and leaves this empty; a canon with empty
+    /// `sources` simply has no v1 trip to run (breadth discovers sources, and
+    /// breadth is deferred).
+    pub sources: Vec<WritTarget>,
     pub trip_budget: serde_json::Value,
 }
 
@@ -80,9 +87,46 @@ pub struct MandateRecord {
     pub teacher_env_ref: Option<Uuid>,
     pub matrix_ref: Option<Uuid>,
     pub demands: serde_json::Value,
+    /// The typed locators a v1 canon trip fetches (`[{locator:{kind,value},
+    /// note}]`); `[]` for a writ, whose targets live in `demands` (C.4 ruling
+    /// 2026-07-09).
+    pub sources: serde_json::Value,
     pub trip_budget: serde_json::Value,
     pub authored_at: OffsetDateTime,
     pub envelope: Envelope,
+}
+
+impl MandateRecord {
+    /// The typed locators this mandate's v1 trip fetches: a WRIT's are its
+    /// `demands` targets, a CANON's are its `sources` (the 2026-07-09 ruling).
+    /// The set is drawn ONLY from these persisted, validated fields — never
+    /// from any freeform text — which is what SC-J05 asserts.
+    pub fn trip_locators(&self) -> Result<Vec<Locator>, String> {
+        let field = match self.kind {
+            MandateKind::Writ => &self.demands,
+            MandateKind::Canon => &self.sources,
+        };
+        let array = field
+            .as_array()
+            .ok_or_else(|| "mandate targets are a locator array (C.4)".to_string())?;
+        let mut out = Vec::with_capacity(array.len());
+        for (i, entry) in array.iter().enumerate() {
+            let loc = entry
+                .get("locator")
+                .ok_or_else(|| format!("target {i} carries no locator (C.4)"))?;
+            let value = loc
+                .get("value")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| format!("target {i}'s locator names no value (C.4)"))?;
+            let locator = match loc.get("kind").and_then(|v| v.as_str()) {
+                Some("uri") => Locator::Uri(value.to_string()),
+                Some("source_id") => Locator::SourceId(value.to_string()),
+                other => return Err(format!("target {i}: unknown locator kind {other:?} (C.4)")),
+            };
+            out.push(locator);
+        }
+        Ok(out)
+    }
 }
 
 /// Characters whose presence marks a locator as search-shaped rather than
@@ -171,6 +215,13 @@ pub fn validate_mandate_shape(draft: &MandateDraft) -> Result<(), String> {
             if let Some(i) = clauses.iter().position(|c| c.trim().is_empty()) {
                 return Err(format!("canon clause {i} is empty (C.4)"));
             }
+            // v1 canon-fetch (C.4 ruling 2026-07-09): `sources` are typed
+            // locators under the IDENTICAL SC-J02 wall as writ targets. Empty
+            // is lawful — a canon with no sources simply has no v1 trip.
+            for (i, source) in draft.sources.iter().enumerate() {
+                validate_locator_shape(&source.locator)
+                    .map_err(|why| format!("canon source {i}: {why}"))?;
+            }
             Ok(())
         }
         MandateKind::Writ => {
@@ -184,6 +235,9 @@ pub fn validate_mandate_shape(draft: &MandateDraft) -> Result<(), String> {
             };
             if targets.is_empty() {
                 return Err("a writ with no targets is an errand to nowhere (C.4)".into());
+            }
+            if !draft.sources.is_empty() {
+                return Err("a WRIT names its targets in demands, not sources (C.4 ruling)".into());
             }
             for (i, target) in targets.iter().enumerate() {
                 validate_locator_shape(&target.locator)

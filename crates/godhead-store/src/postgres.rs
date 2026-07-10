@@ -15,7 +15,7 @@ use godhead_schemas::{
     PetitionStatus, ProposalDraft, QuarantineDraft, QuarantineItem, ReadinessFlag, RebalanceState,
     RefinedArtifact, RefusalDraft, RefusalReason, RefusalRecord, ReportKind, ReturnDraft,
     ReturnManifest, ScanEngine, ScanVerdict, ScanVerdictKind, SchemaRegistry, Severity, SourceDraw,
-    Tier, Verdict, RECORD_SCHEMA_VERSION,
+    Tier, Verdict, WritTarget, RECORD_SCHEMA_VERSION,
 };
 use semver::Version;
 use sha2::{Digest, Sha256};
@@ -1063,6 +1063,7 @@ impl PgStore {
             teacher_env_ref: row.try_get("teacher_env_ref")?,
             matrix_ref: row.try_get("matrix_ref")?,
             demands: row.try_get("demands")?,
+            sources: row.try_get("sources")?,
             trip_budget: row.try_get("trip_budget")?,
             authored_at: row.try_get("authored_at")?,
             envelope: Self::envelope_from_row(row)?,
@@ -5012,35 +5013,44 @@ impl Store for PgStore {
                         matrix.matrix_id, matrix.status
                     )));
                 }
-                let MandateDemands::WritTargets(targets) = &draft.demands else {
-                    unreachable!("shape-validated: a writ carries targets");
-                };
-                let registry = self.get_config("known_source_ids").await?;
-                // known_source_ids parses as an array or this read refuses —
-                // an empty roster fabricated from a mistyped constant would
-                // reject every writ under the WRONG reason (unknown source),
-                // swallowing the type error (SC-H07; this site is the class's
-                // fourth survivor, caught by the slice-10 workspace sweep,
-                // arch_walls.rs).
-                let known: Vec<&str> = registry
-                    .value
-                    .as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
-                    .ok_or_else(|| {
-                        StoreError::ValidationFailed(
-                            "known_source_ids is not an array; no fabricated default \
-                             stands in for a constant (SC-H07)"
-                                .into(),
-                        )
-                    })?;
-                for (i, target) in targets.iter().enumerate() {
-                    if let Locator::SourceId(id) = &target.locator {
-                        if !known.contains(&id.as_str()) {
-                            return Err(StoreError::ValidationFailed(format!(
-                                "writ demand {i} names unknown source_id '{id}'; a writ's \
-                                 targets resolve at authorship, before any trip (SC-J02)"
-                            )));
-                        }
+            }
+        }
+        // A v1 trip's fetch targets are typed locators — a WRIT's `demands`
+        // targets or a CANON's `sources` (C.4 ruling 2026-07-09) — and every
+        // source_id among them resolves to a registered source at AUTHORSHIP
+        // or fails: the IDENTICAL wall for both kinds, an authorship failure
+        // never a trip failure (SC-J02).
+        let fetch_targets: &[WritTarget] = match &draft.demands {
+            MandateDemands::WritTargets(targets) => targets,
+            MandateDemands::CanonClauses(_) => &draft.sources,
+        };
+        if fetch_targets
+            .iter()
+            .any(|t| matches!(t.locator, Locator::SourceId(_)))
+        {
+            let registry = self.get_config("known_source_ids").await?;
+            // known_source_ids parses as an array or this read refuses — an
+            // empty roster fabricated from a mistyped constant would reject
+            // every trip under the WRONG reason (unknown source), swallowing
+            // the type error (SC-H07).
+            let known: Vec<&str> = registry
+                .value
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .ok_or_else(|| {
+                    StoreError::ValidationFailed(
+                        "known_source_ids is not an array; no fabricated default \
+                         stands in for a constant (SC-H07)"
+                            .into(),
+                    )
+                })?;
+            for (i, target) in fetch_targets.iter().enumerate() {
+                if let Locator::SourceId(id) = &target.locator {
+                    if !known.contains(&id.as_str()) {
+                        return Err(StoreError::ValidationFailed(format!(
+                            "mandate target {i} names unknown source_id '{id}'; targets \
+                             resolve at authorship, before any trip (SC-J02)"
+                        )));
                     }
                 }
             }
@@ -5064,7 +5074,19 @@ impl Store for PgStore {
                     .collect(),
             ),
         };
-        let serialized = format!("{demands} {}", draft.trip_budget);
+        let sources = serde_json::Value::Array(
+            draft
+                .sources
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "locator": { "kind": t.locator.kind(), "value": t.locator.value() },
+                        "note": t.note,
+                    })
+                })
+                .collect(),
+        );
+        let serialized = format!("{demands} {sources} {}", draft.trip_budget);
         if let Some(pattern) = secrets::scan(&serialized) {
             return Err(StoreError::SecretDetected(format!(
                 "mandate text matched secret pattern '{pattern}' (Law XV.2)"
@@ -5075,9 +5097,9 @@ impl Store for PgStore {
         Self::set_actor_class(&mut tx, SOVEREIGN_CLASS).await?;
         let row = sqlx::query(
             r#"INSERT INTO mandates
-                 (mandate_id, kind, teacher_env_ref, matrix_ref, demands, trip_budget,
+                 (mandate_id, kind, teacher_env_ref, matrix_ref, demands, sources, trip_budget,
                   schema_name, schema_version, produced_by)
-               VALUES ($1, $2, $3, $4, $5, $6, 'MandateRecord', $7, $8)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'MandateRecord', $8, $9)
                RETURNING *"#,
         )
         .bind(mandate_id)
@@ -5085,6 +5107,7 @@ impl Store for PgStore {
         .bind(draft.teacher_env_ref)
         .bind(draft.matrix_ref)
         .bind(&demands)
+        .bind(&sources)
         .bind(&draft.trip_budget)
         .bind(RECORD_SCHEMA_VERSION)
         .bind(actor)

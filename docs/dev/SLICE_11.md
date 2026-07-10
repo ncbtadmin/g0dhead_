@@ -131,6 +131,33 @@ full rider list incl. the F1 keyed-intake rider, non-goals, gate) pin next, as
 their own docs commit crossing the desk before implementation — the two-commit
 lifecycle (DISCIPLINE.md §5).*
 
+## 0.2 Canon-fetch scope — ruled (2026-07-09, during the build)
+
+A design question surfaced building the fetch layer: a CANON mandate's `demands`
+are *freeform, exhaustiveness-defining clauses* (C.4), not locators, so turning
+them into fetch targets is open-ended search — the deferred breadth system. The
+sovereign ruled:
+
+> **v1 canon trips fetch sovereign-named concrete sources.** C.4's CANON
+> `demands` remain freeform exhaustiveness clauses, untouched; the CANON mandate
+> **gains a `sources` field of typed locators** under the identical SC-J02
+> validation (locators, never queries — a canon with empty `sources` simply has
+> no v1 trip to run). `FETCH_PER_CANON` executes against `sources` via the same
+> mandate-rooted machinery as writs; **SC-J05's set-equality property covers
+> both kinds**; C.3 coverage and the gap duty map against **clauses**, so unmet
+> clauses surface for the sovereign to widen by naming more sources.
+
+Grounding: Handbook §5.1 ("v1 mandates name concrete targets — breadth discovers
+them") and the Phase A ruling that minimal canon-fetch is v1 scope while
+breadth-tuning is not. The fetch layer is therefore **unified**: writ targets and
+canon sources are one typed-locator set under one SC-J02 wall and one SC-J05
+property; the freeform clauses remain the coverage/exhaustiveness surface, and
+discovering sources from clauses stays deferred. The **C.4 `sources` note is an
+author-sanctioned doc amendment** (doc 07 §C.4) that rides with the delivery.
+Budget fallback: if the `sources` field breaks the slice budget, fall back to
+deferring canon collection (the earlier option) with a G13 annotation — but the
+record says build it.
+
 ---
 
 # Part II — the pinned spec (§1+), presented to the desk 2026-07-09

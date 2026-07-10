@@ -158,6 +158,7 @@ async fn writ_mandate(store: &PgStore, matrix_ref: Uuid) -> MandateRecord {
                     locator: Locator::Uri("https://example.org/atlas.txt".into()),
                     note: None,
                 }]),
+                sources: vec![],
                 trip_budget: json!({ "max_items": 16 }),
             },
         )
@@ -180,6 +181,7 @@ async fn canon_mandate(store: &PgStore, matrix_ref: Uuid) -> MandateRecord {
                 demands: MandateDemands::CanonClauses(
                     vec!["every text of the atlas corpus".into()],
                 ),
+                sources: vec![],
                 trip_budget: json!({ "max_items": 16 }),
             },
         )

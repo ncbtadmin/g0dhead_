@@ -12,6 +12,7 @@ members = [
     "crates/godhead-concordat",
     "crates/godhead-student",
     "crates/godhead-deacon",
+    "crates/godhead-collector",
 ]
 
 [workspace.package]

@@ -177,6 +177,7 @@ fn writ(matrix: Uuid, targets: Vec<WritTarget>) -> MandateDraft {
         teacher_env_ref: None,
         matrix_ref: Some(matrix),
         demands: MandateDemands::WritTargets(targets),
+        sources: vec![],
         trip_budget: json!({ "max_trips": 1 }),
     }
 }
