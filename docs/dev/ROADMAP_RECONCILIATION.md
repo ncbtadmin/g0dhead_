@@ -1,6 +1,6 @@
 # Roadmap Reconciliation — the sequence after Slice 11
-### Prepared 2026-07-09, revised 2026-07-09/10 (passes 2–6) · analysis only — UNCOMMITTED, UNPINNED
-### Nothing here is implemented, amended, or authorized until the §15 decisions return and the next slice receives a pinned scope. Pass-2 dispositions: §17. Pass-3: §18. Pass-4: §19. Pass-5: §20. Pass-6 dispositions, the amendment matrix, and the standing readiness verdict: §21.
+### Prepared 2026-07-09, revised 2026-07-09/10 (passes 2–7) · analysis only — COMMITTED ON PROPOSAL BRANCH, UNMERGED, UNPINNED
+### Nothing here is implemented, canonically amended, or authorized until the §15 decisions return. Passes 2–7 and every visible retraction live in [REVIEW_LEDGER.md](REVIEW_LEDGER.md).
 
 Documents 5–8 remain authoritative about required behavior. This document proposes
 development *order*, application *boundaries*, and validation *gates*. It weakens,
@@ -150,10 +150,11 @@ Nothing in Sections I/J or outward transport is upstream of any stop.
 
 ### 3.1 Override and release mechanism
 
-The complete proposalâ€”bond/measurement split, compatibility, lineages,
+The complete proposal—bond/measurement split, compatibility, lineages,
 petition occurrences, transition plans, release semantics, selectors, and
-acceptance criteriaâ€”lives only in
+acceptance criteria—lives only in
 [OVERRIDE_LINEAGES.md](OVERRIDE_LINEAGES.md). D8 decides it; P2B owns it.
+
 ## 4. Canon and criteria analysis
 
 What canon obligates (unchanged by this document): the four requirements named
@@ -244,8 +245,9 @@ space policy) are answered before P1 pins — P1 builds on both.
 Entry: Slice 11 delivered — **satisfied (75ad38b: adversarial round completed,
 confirmed findings closed, F1 rider shipped, gate green via producer, 161
 tests)** — and **any sovereign-pinned successor slice closed: Slice 11b (the
-Doctor & dissolution cascade, pinned 26c0090) precedes P0** (pass-6 inventory
-reconciliation; the two-commit lifecycle owns it, not this roadmap).
+Doctor & dissolution cascade, pinned at 26c0090 and amended at `ffae6a8`) is
+signed but undelivered and precedes P0**. Its two-commit lifecycle owns delivery,
+not this roadmap.
 Contents, exhaustively: (1) confirmed Slice-11 findings; (2) keyed-intake rider
 verification; (3) criteria-sweep regeneration; NARROWER and annotated halves
 classified, loop-blocking ones resolved or scheduled; (4) **fresh-database
@@ -295,11 +297,11 @@ storage-growth measurement begun (§12); kill/adjust/proceed verdict against
 the pre-registered bands. A finding that corpus classes need different
 thresholds becomes a proposed VI.1 amendment (§4), decided by the sovereign —
 never enacted by this phase.
-**Verdict routing:** the post-measurement checkpoint follows the P1-B Ã¢Ë†Â¥ P2A
+**Verdict routing:** the post-measurement checkpoint follows the P1-B ∥ P2A
 join and uses the promotion mechanism in
-[SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md). proceed is
-one atomic policy-and-space act; djust re-enters P1 under a new committed
-preregistration revision; kill blocks P2B and returns to sovereign
+[SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md). `proceed` is
+one atomic R19 policy-and-space act; `adjust` re-enters P1 under a new committed
+preregistration revision; `kill` blocks P2B and returns to sovereign
 reconciliation. The P1-B time-box is fixed at pin; overrun is a finding.
 
 **P2 — Application spine (two tranches, separately pinned and reviewed).**
@@ -321,16 +323,21 @@ exist on the delivery branch at any moment. (The project has a recorded
 parallel-session hazard — the standing git-quiet check applies.) With the
 fork moved behind P1-A, the shared-surface qualification resolves itself:
 P1-B and P2A genuinely touch disjoint surfaces.
-Tranche A (semantics-independent; may run concurrent with P1-B — pass-5
-wording fix, consistent with the fork above): server binary
-and lifecycle; deployment config and health; the §11 v1 client-authority
-posture; upload transport and `commit_files`; intake status and
-`watch_progress` read models; job/refusal/log read models;
-recovery-on-restart; the **two-substrate backup/restore procedure** with a
-restore test. Nothing in P1's findings can invalidate this tranche.
+Tranche A (semantics-independent; may run concurrent with P1-B): server binary
+and lifecycle; deployment config and health; upload transport and
+`commit_files`; intake status, `watch_progress`, and job/refusal/log read
+models; recovery-on-restart; the **two-substrate backup/restore procedure**
+with a restore test; and the minimum P2A authority substrate defined in
+[AUTHORITY_REGISTRIES.md](AUTHORITY_REGISTRIES.md)—authentication and local
+recovery, unforgeable contexts, structural gate, K/R/F/H envelope,
+CommandReceipt/CommandRefusal, complete registered-and-refusing handler
+skeleton, and live R19/R20 checkpoint callables. P2A exits only when an
+enrolled operator can invoke R19/R20 and unauthenticated, stale,
+hash-mismatched, and replayed commands refuse before elevation. Nothing in
+P1's semantic findings can invalidate this substrate.
 Tranche B (semantics-shaped; pins after the P1/P2A join): neighborhood, link,
-explain-link, Postulant, matrix, and retrieval read models; the §3.1
-link-and-weight override labor with its criteria; `links_for_node`;
+explain-link, Postulant, matrix, and retrieval read models; the override labor
+and criteria in [OVERRIDE_LINEAGES.md](OVERRIDE_LINEAGES.md); `links_for_node`;
 `list_matrices`; link-policy and threshold parameters as configuration
 surfaces; the complete ceremony, authority, envelope, receipt, and served-executor
 surface specified in [AUTHORITY_REGISTRIES.md](AUTHORITY_REGISTRIES.md).
@@ -553,84 +560,71 @@ weight; the cost is canon churn on every empirical revision. Doc-8 discipline
 either way: citable `AC-` ids, verifiable assertions, seed tests,
 `SOVEREIGN_JUDGMENT` where the operator is the check, G13 annotations.
 
-## 15. Decision sheet â€” Pass-7 controlling form
+## 15. Decision sheet — Pass-7 controlling form
 
 Eight decisions return to the sovereign. This sheet records choices and
 recommendations only; each mechanism has one normative proposal home. If a
 summary here conflicts with its annex, the annex governs and the conflict is a
 review finding.
 
-**D1 â€” Phase sequence.** Adopt P0 â†’ P1-A â†’ fork{P1-B âˆ¥ P2A} â†’ join â†’ sovereign
-policy/space checkpoint â†’ P2B â†’ P3 â†’ P4-A â†’ P4-B(loop) â†’ P5 â†’ P6 â†’ P7, with
-the entry, exit, and non-proceed routes in Â§8 and the checkpoint mechanism in
+**D1 — Phase sequence.** Adopt P0 → P1-A → fork{P1-B ∥ P2A} → join → sovereign
+policy/space checkpoint → P2B → P3 → P4-A → P4-B(loop) → P5 → P6 → P7, with
+the entry, exit, and non-proceed routes in §8 and the checkpoint mechanism in
 [SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md).
-Recommendation: adopt as amended. [adopt / reject / amend]
+Recommendation: adopt as amended. `[adopt / reject / amend]`
 
-**D2 â€” Scheduling posture.** Permit bounded concurrency only after P1-A:
+**D2 — Scheduling posture.** Permit bounded concurrency only after P1-A:
 separately pinned and reviewed P1-B/P2A slices whose landings serialize through
-the gate. Recommendation: bounded concurrency. [offline-first / bounded concurrency]
+the gate. Recommendation: bounded concurrency. `[offline-first / bounded concurrency]`
 
-**D3 â€” Transport capabilities.** Replace the universal dependency wall with
-the inbound, model-egress, and fetch-egress boundaries in Â§9. Deferral forces a
+**D3 — Transport capabilities.** Replace the universal dependency wall with
+the inbound, model-egress, and fetch-egress boundaries in §9. Deferral forces a
 different D1 sequence or a doc-04 architecture amendment before P1.
-Recommendation: adopt. [adopt / amend / defer-with-stated-consequence]
+Recommendation: adopt. `[adopt / amend / defer-with-stated-consequence]`
 
-**D4 â€” Embedder path and space/trial policy.** Decide together: (a) the
+**D4 — Embedder path and space/trial policy.** Decide together: (a) the
 production separate-process adapter, with in-process inference contingency
 only; and (b) the space, candidate, promotion, epoch, trial-cycle, and evidence
 mechanisms in [SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md)
 and [TRIAL_AND_EVIDENCE.md](TRIAL_AND_EVIDENCE.md), including their D4 rows in
 [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md). Recommendation: adopt both as
-amended. [adopt a+b / amend]
+amended. `[adopt a+b / amend]`
 
-**D5 â€” Criteria-register authority.** Keep application criteria in the
+**D5 — Criteria-register authority.** Keep application criteria in the
 append-ledgered, explicitly non-canonical development register described in
-Â§14, with promotion into Document 8 for any rule that becomes permanent.
-Recommendation: dev-register. [dev-register / canonical doc 09]
+§14, with promotion into Document 8 for any rule that becomes permanent.
+Recommendation: dev-register. `[dev-register / canonical doc 09]`
 
-**D6 â€” P0 closure.** Adopt the fixed entry, contents, exclusions, and exit in
-Â§8/P0. Recommendation: adopt. [adopt / amend]
+**D6 — P0 closure.** Adopt the fixed entry, contents, exclusions, and exit in
+§8/P0. Recommendation: adopt. `[adopt / amend]`
 
-**D7 â€” Client and command authority.** Decide the application boundary,
+**D7 — Client and command authority.** Decide the application boundary,
 authority classes, reserved-operation registry, authentication-control
 registry, envelope/receipt substrate, and executor discovery in
 [AUTHORITY_REGISTRIES.md](AUTHORITY_REGISTRIES.md), including its D7 rows in
 [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md). Recommendation: adopt as amended.
-[adopt / amend]
+`[adopt / amend]`
 
-**D8 â€” Override release and kind-aware protection.** Decide the complete
+**D8 — Override release and kind-aware protection.** Decide the complete
 lineage, occurrence, transition-plan, compatibility, release, effective-source,
 and acceptance-criteria mechanism in
 [OVERRIDE_LINEAGES.md](OVERRIDE_LINEAGES.md), including its D8 rows in
 [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md). Recommendation: adopt as amended.
-[adopt / amend]
+`[adopt / amend]`
 
 This sheet does not declare itself answerable. Current review status and bounded
 verdicts live in [REVIEW_LEDGER.md](REVIEW_LEDGER.md).
+
 ## 16. ADR extraction (after decisions return)
 
-Accepted mechanisms leave this document for independently supersedable ADRs,
-with only sequencing consequences and status pointers retained here:
-**ADR-1 Transport capabilities** (D3 — boundaries, reachability tests, SC-F06
-reassignment, SLICE_11 §0 supersession text); **ADR-2 Embedding spaces** (D4b
-— generation DDL, lifecycle mechanics including failure-marking, sovereign
-abandonment, and the total Postulant disposition,
-`BondQualification`/`WeightEvidence`/`TrialEvidenceSet` DDL, the
-**`GraphEpoch` participants and the fence-vs-catch-up implementation**, the
-evidence **validity state machine and atomic trial opening**, the
-`CandidateEvaluationContext`, atomic policy+space promotion, propagation,
-backfill/index/activation procedure, the named canonical amendments);
-**ADR-3 Client authority** (D7 — enrollment, tokens, sovereign-context
-capability, **capability-bearing signatures as the recommended perimeter**
-[the sealed-module branch priced as its P2A refactor], the §11.1 registry
-with its splits and receipts, the store-owned envelope mechanism and
-**durable command receipts**, the separate **authentication-control
-registry**, threat model by packaging); **ADR-4 Override semantics** (D8 +
-§3.1 — **`OverrideLineage` epochs, immutable `PetitionOccurrence`s,
-`TransitionPlan`s**, the kind-compatibility and four-kind release tables,
-release representation including geometry-neutral `RELEASED_AS_STANDS`,
-epoch-fenced evidence writes, the SC-C01 resolution, the link/weight labor
-set). The criteria register (D5) is born separate.
+Only accepted mechanisms leave this proposal for independently supersedable
+ADRs: ADR-1 from §9 (transport); ADR-2 from
+[SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md) and
+[TRIAL_AND_EVIDENCE.md](TRIAL_AND_EVIDENCE.md); ADR-3 from
+[AUTHORITY_REGISTRIES.md](AUTHORITY_REGISTRIES.md); and ADR-4 from
+[OVERRIDE_LINEAGES.md](OVERRIDE_LINEAGES.md). Each ADR consumes only the rows
+its decision owns in [AMENDMENT_MATRIX.md](AMENDMENT_MATRIX.md). D5's
+development register remains separate.
 
 ## 17. Review history
 
