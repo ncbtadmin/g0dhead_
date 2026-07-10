@@ -18,7 +18,8 @@ process passes each; adopting one decision never ratifies another's item):**
 | Target | Amendment | Owner |
 |--------|-----------|-------|
 | doc 03 §2.2 · doc 04 §4.1 · SC-M05 | one vector per node → per node *per valid space* | D4 |
-| doc 03 §2.3 · doc 04 §4.2 | similarity/weight leave the link record for space-keyed evidence | D4 |
+| doc 03 §2.3 · doc 04 §4.2 | similarity, category, qualification, and weight leave the immutable bond payload for append-only evidence/effective-source records | D4/D8 (each decision owns only its fields) |
+| doc 03 §2.3 · doc 04 §4.4 | remove the mutable `user_overridden` marker from the protected payload; derive held state from lineages or a separate projection | D8 |
 | Dogma VI / A.9 · doc 03 §2.4 | `SUPERSEDED` (terminal) + space, trial-cycle, and evidence-set identity on the matrix | D4 |
 | A.5 | `SPACE_ADOPTED · SPACE_ACTIVATED · SPACE_ABANDONED · SPACE_RETIRED · CANDIDATE_CERTIFIED · MATRIX_SUPERSEDED · CONFIG_CHANGED · TRIAL_SUPERSEDED · TRIAL_DISTRUSTED` | D4 |
 | new A-series relation | append-only `ConfigHistory` (no prior-value recovery exists today) | D4 |
@@ -31,11 +32,12 @@ process passes each; adopting one decision never ratifies another's item):**
 | B.2 / HS §1.3d | persisted, attributed `SOVEREIGN_JUDGMENT` verdict record (Return stays immutable) | D7 |
 | SC-I07b | standing-notice resolution persistence (acknowledge/silence answerable, R21) | D7 |
 | A.4 | `UNSHIPPED_OPERATION` refusal reason | D7 |
-| A.4 | `TARGET_RELEASED · TARGET_SUPERSEDED` refusal reasons | D8 |
-| A.7 | per-kind lineages · `OverrideLineage` epochs · immutable `PetitionOccurrence`s · target/epoch binding · release records | D8 |
-| IV.2 · SC-C02 · SC-C03 | occurrence immutability; petition class ≠ successor kind; SILENCED scoped to the silenced head epoch | D8 |
-| IV.5 | bundled releases: every auto-closure enumerated, hashed, and seen at consent | D8 |
-| SC-C01 | derived-effective-state reading + exact-hash sovereign `TransitionPlan` as lawful authority | D8 |
+| A.4 | `TARGET_RELEASED · TARGET_SUPERSEDED` terminal execution refusal reasons | D8 |
+| A.7 | per-kind `OverrideLineage` epochs · released fallbacks · scoped `EffectiveSourceSelection` · immutable occurrences/resolutions/execution attempts · release and transition records | D8 |
+| new A-series relations | `BondCategoryEvidence`, `EffectiveSourceSelection`, exact-hash `TransitionPlan`, `PetitionResolution`, and `PetitionExecutionAttempt` | D8 |
+| IV.2 · SC-C02 · SC-C03 | immutable occurrence history; petition class ≠ successor kind; SILENCED scoped to the complete targeted lineage-state digest | D8 |
+| IV.5 | four-kind release representation and as-stands selectors; every active closure and inactive effective-source supersession enumerated and hashed | D8 |
+| IV.1 · SC-C01 | append-only/derived-effective-state reading + exact-hash sovereign `TransitionPlan` as lawful authority beside granted consent, for singleton and composite transitions | D8 |
 | SC-C04 · SC-D10 | composite successor shape; Notary provenance links every closure in the plan | D8 |
 | A.5 | `OVERRIDE_RELEASED` | D8 |
 | A.12 | **deliberately unamended** — consent resolves through the immutable occurrence/plan | D8 (decision recorded) |
