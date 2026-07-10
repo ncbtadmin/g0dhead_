@@ -66,7 +66,7 @@ it is literal rather than deferred to an ADR placeholder.
 | A02 | Issue/refresh session | enrolled client proof | active client revision; refresh token rotates; replay revokes the token family | TX | server-side session/token-family state and event | P2A |
 | A03 | Rotate or re-enroll client credential | `SovereignContext` or `RecoveryContext` | expected client revision; old credential revoked atomically | TX | client revision and rotation event | P2A |
 | A04 | Revoke session or client | `SovereignContext` or `RecoveryContext` | expected active session/client revision; idempotent terminal revocation | TX | revocation state checked on every request and event | P2A |
-| A05 | Recover from sole-client loss | host-local `RecoveryContext` only | expected recovery generation; credential is single-use and rotates after success | TX | revoke old client/sessions + enroll replacement + recovery event | P2A |
+| A05 | Recover from sole-client loss | host-local `RecoveryContext` only | expected recovery generation; credential is single-use and rotates after success | RCPT | revoke old client/sessions + enroll replacement + recovery event | P2A |
 
 The recovery credential is created at deployment, stored separately from
 bearer tokens with host filesystem protection, usable only through a loopback
@@ -91,6 +91,13 @@ Every registry row declares a completion mode:
   expected state, resumable steps, and terminal outcome. Retry resumes it.
 - **DISPATCH:** the command commits consent/pending work; a named zero-delay
   query and CAS-claim executor owns completion.
+
+Receipt identity is uniform for authenticated logical reserved commands: every
+R-row and A03/A04/A05 mints or discovers exactly one `CommandReceipt`; A01 and
+A02 instead anchor in `app_auth_events`. RCPT is the resumable mode and may
+remain `ACCEPTED`; TX and DISPATCH insert their receipts already terminal in
+their own transaction. Same K with a different digest creates no second
+receipt and instead records an immutable refusal linked to the standing one.
 
 `stalled(window)` is monitoring only. Normal executors discover
 `pending(..., 0)` immediately. An unshipped API command has no JobRecord, so
@@ -192,6 +199,13 @@ The audit barrier-certification and reconciliation ticks also become served
 supervisor behaviors. They bind the TrialCycle identity and refuse stale cycle
 state. R04 `DECLINED` is the existing sovereign halt at any VI.4 depth; no
 separate trial-halt operation is added, and R19 cannot impersonate one.
+
+The six behaviors have stable `OperationId::Executor` identities:
+`executor:proposal-execution:v1`, `executor:decommission-execution:v1`,
+`executor:admission-processing:v1`, `executor:petition-execution:v1`,
+`executor:audit-barrier-certification:v1`, and
+`executor:reconciliation:v1`. Each declares its authority proof, claim fence,
+restart discovery, and phase in the one authority inventory and arch test.
 
 ## 8. P2A/P2B ownership and exit
 

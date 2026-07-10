@@ -1,6 +1,6 @@
 # ADR-2 — Space, Candidate, Trial & Evidence Substrate (D4)
 
-**Status:** PROPOSED — returns through the desk (D4 rider); non-canonical.
+**Status:** ACCEPTED — desk-reviewed record; non-canonical.
 
 - **Decision:** D4, returned 2026-07-10 "ADOPT a+b" (`ROADMAP_RECONCILIATION.md` §15.1). The rider makes the desk this ADR's reviewer: it drafts, it does not adopt.
 - **Normative sources (the mechanisms live there, not here):** [SPACE_PROMOTION_AND_EPOCHS.md](SPACE_PROMOTION_AND_EPOCHS.md) and [TRIAL_AND_EVIDENCE.md](TRIAL_AND_EVIDENCE.md). This ADR chooses physical shape; where a sentence here conflicts with an annex, the annex governs and the conflict is a review finding.
